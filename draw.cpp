@@ -118,7 +118,10 @@ public:
                 path.lineTo(x, y);
             }
         }
-        painter.setPen({255, 0, 0});
+        QPen pen({255, 0, 0});
+        pen.setWidth(2);
+        painter.setPen(pen);
+        
         painter.drawPath(path);
     }
     
@@ -262,39 +265,59 @@ int main(int argc, char* argv[]) {
 
     Projector proj;
     MaxMinHandler minmax(proj);
+    
+    /*
     minmax.minx = 4550000; // 4860000
     minmax.maxx = 5200000; // 4880000
     minmax.miny = 7300000; // 7555000
+    */
+    
+    /*
+    point center = proj.transform({41.720581, 57.858635});
+    minmax.minx = center.x - 100000;
+    minmax.maxx = center.x + 100000;
+    minmax.miny = center.y - 100000;
+    */
+    
+    point center = proj.transform({43.739319, 56.162759});
+    minmax.minx = center.x - 10000;
+    minmax.maxx = center.x + 10000;
+    minmax.miny = center.y - 10000;
+    
+    
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
     SRTM srtm(proj, minmax);
-    
-    //osmium::handler::Dump handler(std::cout);
-    osmium::io::File infile(argv[1]);
-
-    osmium::area::Assembler::config_type assembler_config;
-    osmium::area::MultipolygonCollector<osmium::area::Assembler> collector(assembler_config);
-
-    std::cerr << "Pass 1...\n";
-    osmium::io::Reader reader1(infile);
-    collector.read_relations(reader1);
-    reader1.close();
-    std::cerr << "Pass 1 done\n";
-
-
-    index_pos_type index_pos;
-    index_neg_type index_neg;
-    location_handler_type location_handler(index_pos, index_neg);
-    location_handler.ignore_errors(); // XXX
     Drawer drawer(proj, minmax);
+    
+    for (int i=1; i<argc; i++) {
+        std::cout << argv[i] << std::endl;
+        //osmium::handler::Dump handler(std::cout);
+        osmium::io::File infile(argv[i]);
 
-    std::cerr << "Pass 2...\n";
-    osmium::io::Reader reader2(infile);
-    osmium::apply(reader2, location_handler,  drawer, collector.handler([&drawer](osmium::memory::Buffer&& buffer) {
-        osmium::apply(buffer, drawer);
-    }));
-    reader2.close();
-    std::cerr << "Pass 2 done\n";
+        osmium::area::Assembler::config_type assembler_config;
+        osmium::area::MultipolygonCollector<osmium::area::Assembler> collector(assembler_config);
+
+        std::cerr << "Pass 1...\n";
+        osmium::io::Reader reader1(infile);
+        collector.read_relations(reader1);
+        reader1.close();
+        std::cerr << "Pass 1 done\n";
+
+
+        index_pos_type index_pos;
+        index_neg_type index_neg;
+        location_handler_type location_handler(index_pos, index_neg);
+        location_handler.ignore_errors(); // XXX
+
+        std::cerr << "Pass 2...\n";
+        osmium::io::Reader reader2(infile);
+        osmium::apply(reader2, location_handler,  drawer, collector.handler([&drawer](osmium::memory::Buffer&& buffer) {
+            osmium::apply(buffer, drawer);
+        }));
+        reader2.close();
+        std::cerr << "Pass 2 done\n";
+    }
     
     combine(srtm.getImage(), drawer.getImage()).save("test.png");
     

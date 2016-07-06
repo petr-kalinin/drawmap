@@ -41,4 +41,4 @@ CMakeLists.txt.user
 srtm
 data
 draw
-test.png
+*.png
