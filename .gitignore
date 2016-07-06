@@ -36,3 +36,8 @@ Makefile*
 # QtCtreator CMake
 CMakeLists.txt.user
 
+# other
+
+srtm
+draw
+test.png
