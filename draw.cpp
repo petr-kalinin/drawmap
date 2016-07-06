@@ -5,6 +5,8 @@
 
 #include <iostream>
 #include <cmath>
+#include <cstdlib>
+#include <fstream>
 
 #include <getopt.h>
 
@@ -81,12 +83,12 @@ class Drawer : public osmium::handler::Handler {
 public:
     Drawer(const Projector& proj_, const MaxMinHandler& minmax_) : 
         scale(-1),
-        image(2000, 2000, QImage::Format_ARGB32),
+        image(4000, 4000, QImage::Format_ARGB32),
         painter(&image),
         proj(proj_),
         minmax(minmax_)
     {
-        image.fill({255, 255, 255});
+        image.fill({255, 255, 255, 0});
         painter.setRenderHint(QPainter::Antialiasing, true);
         painter.setRenderHint(QPainter::TextAntialiasing, true);
         painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
@@ -116,12 +118,12 @@ public:
                 path.lineTo(x, y);
             }
         }
-        painter.setPen({0, 0, 0});
+        painter.setPen({255, 0, 0});
         painter.drawPath(path);
     }
     
-    void finalize() {
-        image.save("test.png");
+    QImage& getImage() {
+        return image;
     }
     
 private:
@@ -134,24 +136,122 @@ private:
 
 class SRTM : public osmium::handler::Handler {
 public:
-    Drawer(const Projector& proj_, const MaxMinHandler& minmax_) : 
-        image(2000, 2000, QImage::Format_ARGB32),
+    SRTM(const Projector& proj_, const MaxMinHandler& minmax_) : 
+        image(4000, 4000, QImage::Format_ARGB32),
         painter(&image),
         proj(proj_),
         minmax(minmax_)
     {
-        image.fill({255, 255, 255});
-        downloadData();
+        image.fill({255, 255, 255, 255});
         paint();
     }
     
-private:
-    static const int SRTM_size = 3001;
-    typedef int heights[SRTM_size][SRTM_size];
-    std::map<std::pair<int, int>, heights> data;
-    
-    void downloadData() {
+    QImage& getImage() {
+        return image;
     }
+
+private:
+    static const int SRTMSize = 3601;
+    typedef std::vector<std::vector<int16_t>> Heights;
+    
+    QImage image;
+    QPainter painter;
+    const Projector& proj;
+    const MaxMinHandler minmax;
+    std::map<std::pair<int, int>, Heights> heights;
+    
+    Heights loadHeights(std::string filename) {
+        std::ifstream file(filename, std::ios::in|std::ios::binary);
+        if (!file) {
+            throw std::runtime_error("Can't open file " + filename);
+        }
+
+        unsigned char buffer[2];
+        Heights heights;
+        heights.resize(SRTMSize);
+        for (int i = 0; i < SRTMSize; ++i) {
+            heights[i].resize(SRTMSize);
+        }
+        for (int i = 0; i < SRTMSize; ++i) {
+            for (int j = 0; j < SRTMSize; ++j) {
+                if (!file.read(reinterpret_cast<char*>(buffer), sizeof(buffer))) {
+                    throw std::runtime_error("Can't read data from file " + filename);
+                }
+                heights[j][i] = (buffer[0] << 8) | buffer[1];
+            }
+        }
+        /*
+        QImage image(SRTMSize, SRTMSize, QImage::Format_ARGB32);
+        for (int x=0; x<image.width(); x++)
+            for (int y=0; y<image.height(); y++)
+                image.setPixel(x, y, heightToColor(heights[x][y]));
+        image.save((filename + ".png").c_str());
+        */
+        return heights;
+    }
+    
+    Heights loadHeights(int x, int y) {
+        char cx='E', cy='N';
+        if (x < 0) {
+            x = -x;
+            cx = 'W';
+        }
+        if (y < 0) {
+            y = -y;
+            cy = 'S';
+        }
+        char filename[8];
+        snprintf(filename, 8, "%c%02d%c%03d", cy, y, cx, x);
+        
+        system((std::string("./download_srtm.sh ") + filename).c_str());
+        
+        return loadHeights(std::string("srtm/") + filename + ".hgt");
+    }
+    
+    const Heights& getHeights(int x, int y) {
+        if (heights.count({x,y}) == 0)
+            heights[{x,y}] = loadHeights(x,y);
+        return heights[{x,y}];
+    }
+    
+    int16_t getHeight(double x, double y) {
+        int xx = std::floor(x);
+        int yy = std::floor(y);
+        const Heights& thisHeights = getHeights(xx, yy);
+        int fx = (x - xx) * SRTMSize;
+        int fy = (1 - (y - yy)) * SRTMSize;
+        //std::cout << "getHeight(" << x << " " << y << "   " << xx << " " << yy << "    " << fx << " " << fy << std::endl;
+        return thisHeights[fx][fy];
+    }
+    
+    QRgb heightToColor(int16_t height) {
+        if (height < 50) height = 50;
+        if (height > 200) height = 200;
+        height = 1.0* (height - 50) / (200 - 50) * 255;
+        QColor color({height, height, height});
+        return color.rgba();
+    }
+    
+    void paint() {
+        for (int x=0; x<image.width(); x++) {
+            for (int y=0; y<image.height(); y++) {
+                double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
+                double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
+                point p = proj.invertTransform({rx, ry});
+                //std::cout << x << " " << y << "    " << rx << " " << ry << std::endl;
+                int height = getHeight(p.x, p.y);
+                image.setPixel(x, y, heightToColor(height));
+             }
+        }
+    }
+};
+
+QImage combine(const QImage& image1, const QImage& image2) {
+    QImage result(image1);
+    QPainter painter(&result);
+    painter.drawImage(0, 0, image2);
+    
+    return result;
 }
 
 int main(int argc, char* argv[]) {
@@ -162,10 +262,13 @@ int main(int argc, char* argv[]) {
 
     Projector proj;
     MaxMinHandler minmax(proj);
-    minmax.minx = 4860000; // 4860000
-    minmax.maxx = 4880000; // 4880000
-    minmax.miny = 7580000; // 7555000
+    minmax.minx = 4550000; // 4860000
+    minmax.maxx = 5200000; // 4880000
+    minmax.miny = 7300000; // 7555000
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
+    
+    SRTM srtm(proj, minmax);
+    
     //osmium::handler::Dump handler(std::cout);
     osmium::io::File infile(argv[1]);
 
@@ -193,7 +296,7 @@ int main(int argc, char* argv[]) {
     reader2.close();
     std::cerr << "Pass 2 done\n";
     
-    drawer.finalize();
+    combine(srtm.getImage(), drawer.getImage()).save("test.png");
     
     return 0;
 }

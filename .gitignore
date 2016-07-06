@@ -39,5 +39,6 @@ CMakeLists.txt.user
 # other
 
 srtm
+data
 draw
 test.png
