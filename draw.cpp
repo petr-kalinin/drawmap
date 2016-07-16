@@ -25,7 +25,7 @@ typedef osmium::index::map::Dummy<osmium::unsigned_object_id_type, osmium::Locat
 typedef osmium::index::map::SparseMemArray<osmium::unsigned_object_id_type, osmium::Location> index_pos_type;
 typedef osmium::handler::NodeLocationsForWays<index_pos_type, index_neg_type> location_handler_type;
 
-const int IMAGE_SIZE = 500;
+const int IMAGE_SIZE = 4000;
 std::vector<int> dx{-1,-1,-1, 0, 1, 1, 1, 0};
 std::vector<int> dy{-1, 0, 1, 1, 1, 0, -1,-1};
 
@@ -520,10 +520,11 @@ private:
     QPainter painter;
     SRTM::Heights heights;
     std::vector<std::vector<point>> parent;
-    std::vector<std::vector<int>> area;
+    static std::vector<std::vector<int>> area;
     std::vector<std::vector<std::vector<point>>> childs;
     static const int INF = 100000;
     point root;
+    static const int MIN_AREA_FOR_RIVER = IMAGE_SIZE * IMAGE_SIZE / 500;
     
     void build_tree() {
         std::set<std::pair<int, point>> q;
@@ -585,7 +586,13 @@ private:
         QColor color({height*x, height*(1-x), 0});
         return color.rgba();
     }
-    
+
+    QRgb riverColor(int area) {
+        double coeff = 0.3 + 0.7*std::log(1.0*area/MIN_AREA_FOR_RIVER) / std::log(1.0*IMAGE_SIZE*IMAGE_SIZE/MIN_AREA_FOR_RIVER);
+        QColor color({0, 0, 255*coeff});
+        return color.rgba();
+    }
+
     void set_area(int x, int y) {
         area[x][y] = 1;
         for (int i=0; i<childs[x][y].size(); i++) {
@@ -597,14 +604,16 @@ private:
         }
     }
     
+    static bool compare_area(point a, point b) {
+        return area[a.first][a.second] > area[b.first][b.second];
+    }
+    
     void paint_from_v(int x, int y, double l, double r) {
         image.setPixel(x, y, color((l+r)/2, heights[x][y]));
         //image.setPixel(x, y, color(1.0*area[x][y] / IMAGE_SIZE / IMAGE_SIZE));
-        static const int MIN_AREA = IMAGE_SIZE * IMAGE_SIZE / 500;
-        if (area[x][y] > MIN_AREA)
-            image.setPixel(x, y, color(1.0*MIN_AREA/area[x][y], 255));
         if (childs[x][y].size() == 0)
             return;
+        sort(childs[x][y].begin(), childs[x][y].end(), compare_area);
         double step = (r-l) / area[x][y];
         double pos = l;
         for (int i=0; i<childs[x][y].size(); i++) {
@@ -614,6 +623,19 @@ private:
         }
     }
     
+    void paint_rivers() {
+        for (int x=0; x<image.width(); x++)
+            for (int y=0; y<image.height(); y++) {
+                if (area[x][y] > MIN_AREA_FOR_RIVER) {
+                    auto color = riverColor(area[x][y]);
+                    image.setPixel(x, y, color);
+                    image.setPixel(x+1, y, color);
+                    image.setPixel(x, y+1, color);
+                    image.setPixel(x+1, y+1, color);
+                }
+            }
+    }
+
     void paint() {
         parent.resize(image.width());
         childs.resize(image.width());
@@ -626,6 +648,7 @@ private:
         build_tree();
         set_area(root.first, root.second);
         paint_from_v(root.first, root.second, 0, 1);
+        paint_rivers();
         /*
         for (int y=0; y<image.height(); y++) {
             for (int x=0; x<image.width(); x++) {
@@ -653,6 +676,8 @@ private:
         */
     }
 };
+
+std::vector<std::vector<int>> RiverBasins2::area {};
 
 QImage combine(const QImage& image1, const QImage& image2) {
     QImage result(image1);
