@@ -21,6 +21,9 @@
 #include <osmium/io/pbf_input.hpp>
 #include <osmium/visitor.hpp>
 
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+
 typedef osmium::index::map::Dummy<osmium::unsigned_object_id_type, osmium::Location> index_neg_type;
 typedef osmium::index::map::SparseMemArray<osmium::unsigned_object_id_type, osmium::Location> index_pos_type;
 typedef osmium::handler::NodeLocationsForWays<index_pos_type, index_neg_type> location_handler_type;
@@ -160,16 +163,41 @@ public:
     typedef std::vector<std::vector<int32_t>> Heights;
 
     Heights getHeightsForImage() {
+        std::map<std::pair<int, int>, std::pair<cv::Mat, cv::Mat>> transform;
+        for (int x=0; x<image.width(); x++){
+            for (int y=0; y<image.height(); y++) {
+                double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
+                double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
+                point p = proj.invertTransform({rx, ry});
+                int srtmX = floor(p.x);
+                int srtmY = floor(p.y);
+                int srtmDX = (p.x - srtmX) * SRTMSize;
+                int srtmDY = (p.y - srtmY) * SRTMSize;
+                std::pair<int, int> pos(srtmX, srtmY);
+                if (transform.count(pos) == 0) {
+                    transform[pos].first = cv::Mat();
+                    transform[pos].first.create(SRTMSize, SRTMSize, CV_32FC1);
+                    transform[pos].second = cv::Mat();
+                    transform[pos].second.create(SRTMSize, SRTMSize, CV_32FC1);
+                }
+                transform[pos].first.at<float>(srtmDY, srtmDX) = y;
+                transform[pos].second.at<float>(srtmDY, srtmDX) = x;
+             }
+        }
+        cv::Mat cvRes(image.height(), image.width(), CV_32FC1, 0);
+        for (const auto& v : transform) {
+            const auto& tr = v.second;
+            const auto& pos = v.first;
+            const auto heights = getCvHeights(pos.first, pos.second);
+            cv::remap(heights, cvRes, tr.first, tr.second, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+        }
         Heights result;
         result.resize(image.width());
         for (int x=0; x<image.width(); x++) {
             result[x].resize(image.height());
             for (int y=0; y<image.height(); y++) {
-                double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
-                double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
-                point p = proj.invertTransform({rx, ry});
-                result[x][y] = getHeight(p.x, p.y);
-             }
+                result[x][y] = cvRes.at<float>(y,x);
+            }
         }
         return result;
     }
@@ -237,6 +265,17 @@ private:
         return heights[{x,y}];
     }
     
+    cv::Mat getCvHeights(int x, int y) {
+        const Heights& heights = getHeights(x, y);
+        cv::Mat cvRes(SRTMSize, SRTMSize, CV_32FC1, 0);
+        for (int x=0; x<image.width(); x++) {
+            for (int y=0; y<image.height(); y++) {
+                cvRes.at<float>(y,x) = heights[x][y];
+            }
+        }
+        return cvRes;
+    }
+    
     int16_t getHeight(double x, double y) {
         int xx = std::floor(x);
         int yy = std::floor(y);
@@ -264,226 +303,6 @@ private:
         }
     }
 
-};
-
-class RiverBasins {
-public:
-    RiverBasins(const SRTM::Heights heights_) : 
-        image(IMAGE_SIZE, IMAGE_SIZE, QImage::Format_ARGB32),
-        painter(&image),
-        heights(heights_)
-    {
-        image.fill({255, 255, 255, 255});
-        paint();
-    }
-    
-    QImage& getImage() {
-        return image;
-    }
-    
-private:
-    struct point {int x; int y;};
-     
-    QImage image;
-    QPainter painter;
-    SRTM::Heights heights;
-    std::vector<std::vector<point>> representative, parent;
-    std::vector<std::vector<std::vector<point>>> childs;
-    std::vector<std::vector<int>> area;
-    std::vector<point> roots;
-    std::vector<std::vector<bool>> was_on_hills;
-    
-    void reset_hills() {
-        was_on_hills.resize(image.width());
-        for (int x=0; x<image.width(); x++) {
-            was_on_hills[x] = std::vector<bool>(image.height(), false);
-        }
-    }
-    
-    point go_over_hills(int x, int y, int base_height, int x0, int y0) {
-        if (was_on_hills[x][y]) return {-1, -1};
-        was_on_hills[x][y] = true;
-        if (heights[x][y] > base_height + 10) {
-            return {-1, -1};
-        }
-        if (abs(x-x0)+abs(y-y0) > 10)
-            return {-1, -1};
-        if (heights[x][y] < base_height) {
-            return {x, y};
-        }
-        point result = {x, y};
-        int best_height = heights[x][y];
-        for (int k=0; k<dx.size(); k++) {
-            int xx = x+dx[k];
-            int yy = y+dy[k];
-            if ((xx < 0) || (xx >= image.width()))
-                continue;
-            if ((yy < 0) || (yy >= image.height()))
-                continue;
-            point cur_point = go_over_hills(xx, yy, base_height, x0, y0);
-            if (cur_point.x == -1)
-                continue;
-            int cur_height = heights[cur_point.x][cur_point.y];
-            if (cur_height < best_height) {
-                result = cur_point;
-                best_height = cur_height;
-            }
-        }
-        return result;
-    }
-    
-    point find_exit(int x, int y, point repr) {
-        if (representative[x][y].x >= 0) {
-            return {-1, -1};
-        }
-        representative[x][y] = repr;
-        point result = {-1,-1};
-        int best_height = heights[x][y];
-        for (int k=0; k<dx.size(); k++) {
-            int xx = x+dx[k];
-            int yy = y+dy[k];
-            if ((xx < 0) || (xx >= image.width()))
-                continue;
-            if ((yy < 0) || (yy >= image.height()))
-                continue;
-            point cur_point{xx,yy};
-            if (heights[xx][yy] == heights[x][y]) {
-                cur_point = find_exit(xx, yy, repr);
-            } else if (heights[xx][yy] > heights[x][y]) {
-                continue;
-            }
-            if (cur_point.x == -1)
-                continue;
-            int cur_height = heights[cur_point.x][cur_point.y];
-            if (cur_height < best_height) {
-                result = cur_point;
-                best_height = cur_height;
-            }
-        }
-        if (result.x >= 0)
-            return result;
-        reset_hills();
-        for (int k=0; k<dx.size(); k++) {
-            int xx = x+dx[k];
-            int yy = y+dy[k];
-            if ((xx < 0) || (xx >= image.width()))
-                continue;
-            if ((yy < 0) || (yy >= image.height()))
-                continue;
-            point cur_point{xx,yy};
-            if (heights[xx][yy] > heights[x][y]) {
-                cur_point = go_over_hills(xx, yy, heights[x][y], x, y);
-            } else continue;
-            if (cur_point.x == -1)
-                continue;
-            int cur_height = heights[cur_point.x][cur_point.y];
-            if (cur_height < best_height) {
-                result = cur_point;
-                best_height = cur_height;
-            }
-        }
-        return result;
-    }
-    
-    void mark(int x, int y) {
-        if (representative[x][y].x >= 0)
-            return;
-        point p = find_exit(x,y,{x,y});
-        parent[x][y] = p;
-        if (p.x >= 0) {
-            mark(p.x, p.y);
-            p = representative[p.x][p.y];
-            parent[x][y] = p;
-            childs[p.x][p.y].push_back({x,y});
-        } else
-            roots.push_back({x,y});
-    }
-    
-    QRgb color(double x, int height) {
-        QColor color({height*x, height*(1-x), 0});
-        return color.rgba();
-    }
-    
-    void set_area(int x, int y) {
-        area[x][y] = 1;
-        for (int i=0; i<childs[x][y].size(); i++) {
-            set_area(childs[x][y][i].x, childs[x][y][i].y);
-            area[x][y] += area[childs[x][y][i].x][childs[x][y][i].y];
-            if (x==0 && y==0) {
-                //std::cout << "area +=" << area[childs[x][y][i].first][childs[x][y][i].second] << " = " << area[x][y] << std::endl;
-            }
-        }
-    }
-    
-    void paint_from_v(int x, int y, double l, double r) {
-        //image.setPixel(x, y, color((l+r)/2, heights[x][y]));
-        //image.setPixel(x, y, color(1.0*area[x][y] / IMAGE_SIZE / IMAGE_SIZE));
-        static const int MIN_AREA = IMAGE_SIZE * IMAGE_SIZE / 200;
-        if (area[x][y] > MIN_AREA)
-            image.setPixel(x, y, color(1.0*MIN_AREA/area[x][y], 255));
-        if (childs[x][y].size() == 0)
-            return;
-        double step = (r-l) / area[x][y];
-        double pos = l;
-        for (int i=0; i<childs[x][y].size(); i++) {
-            double new_pos = pos + area[childs[x][y][i].x][childs[x][y][i].y] * step;
-            paint_from_v(childs[x][y][i].x, childs[x][y][i].y, pos, new_pos);
-            pos = new_pos;
-        }
-    }
-    
-    void paint_equal(int x,int y) {
-        image.setPixel(x, y, image.pixel(representative[x][y].x, representative[x][y].y));
-    }
-    
-    void paint() {
-        representative.resize(image.width());
-        parent.resize(image.width());
-        childs.resize(image.width());
-        for (int x=0; x<image.width(); x++) {
-            representative[x].resize(image.height(), {-1, -1});
-            parent[x].resize(image.height());
-            childs[x].resize(image.height());
-        }
-        for (int x=0; x<image.width(); x++)
-            for (int y=0; y<image.height(); y++) {
-                mark(x,y);
-            }
-        double step = 1.0/roots.size();
-        for (int i=0; i<roots.size(); i++) {
-            image.setPixel(roots[i].x, roots[i].y, color(step*i, 255));
-            //paint_from_v(roots[i].x, roots[i].y, step*i, step*(i+1));
-        }
-        for (int x=0; x<image.width(); x++)
-            for (int y=0; y<image.height(); y++) {
-                //paint_equal(x,y);
-            }
-        /*
-        for (int y=0; y<image.height(); y++) {
-            for (int x=0; x<image.width(); x++) {
-                std::cout << representative[x][y].x << representative[x][y].y << " ";
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-        for (int y=0; y<image.height(); y++) {
-            for (int x=0; x<image.width(); x++) {
-                std::cout << parent[x][y].x << parent[x][y].y << " ";
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-        for (int y=0; y<image.height(); y++) {
-            for (int x=0; x<image.width(); x++) {
-                for (auto p: childs[x][y]) {
-                    std::cout << p.x << p.y;
-                }
-                std::cout << ". ";
-            }
-            std::cout << std::endl;
-        }
-        */
-    }
 };
 
 class RiverBasins2 {
@@ -701,11 +520,11 @@ int main(int argc, char* argv[]) {
     Projector proj;
     MaxMinHandler minmax(proj);
     
-    
+    /*
     minmax.minx = 4550000; // 4860000
     minmax.maxx = 5200000; // 4880000
     minmax.miny = 7300000; // 7555000
-    
+    */
     
     /*
     point center = proj.transform({41.720581, 57.858635});
@@ -714,13 +533,19 @@ int main(int argc, char* argv[]) {
     minmax.miny = center.y - 100000;
     */
     
-    /*
-    point center = proj.transform({43.739319, 56.162759});
-    minmax.minx = center.x - 10000;
-    minmax.maxx = center.x + 10000;
-    minmax.miny = center.y - 10000;
-    */
     
+    point center = proj.transform({43.739319, 56.162759});
+    minmax.minx = center.x - 1000;
+    minmax.maxx = center.x + 1000;
+    minmax.miny = center.y - 1000;
+    
+    
+    /*
+    point center = proj.transform({37.6, 55.8});
+    minmax.minx = center.x - 1000000;
+    minmax.maxx = center.x + 1000000;
+    minmax.miny = center.y - 1000000;
+    */
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
