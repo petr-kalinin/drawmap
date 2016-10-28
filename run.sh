@@ -1,2 +1,2 @@
 #!/bin/bash
-valgrind ./draw ./data/RU-NIZ.osm.pbf
+./draw ./data/RU-NIZ.osm.pbf

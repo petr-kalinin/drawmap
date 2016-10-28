@@ -144,6 +144,7 @@ private:
     const MaxMinHandler& minmax;
 }; 
 
+template<bool CV>
 class SRTM : public osmium::handler::Handler {
 public:
     SRTM(const Projector& proj_, const MaxMinHandler& minmax_) : 
@@ -162,45 +163,7 @@ public:
 
     typedef std::vector<std::vector<int32_t>> Heights;
 
-    Heights getHeightsForImage() {
-        std::map<std::pair<int, int>, std::pair<cv::Mat, cv::Mat>> transform;
-        for (int x=0; x<image.width(); x++){
-            for (int y=0; y<image.height(); y++) {
-                double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
-                double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
-                point p = proj.invertTransform({rx, ry});
-                int srtmX = floor(p.x);
-                int srtmY = floor(p.y);
-                int srtmDX = (p.x - srtmX) * SRTMSize;
-                int srtmDY = (p.y - srtmY) * SRTMSize;
-                std::pair<int, int> pos(srtmX, srtmY);
-                if (transform.count(pos) == 0) {
-                    transform[pos].first = cv::Mat();
-                    transform[pos].first.create(SRTMSize, SRTMSize, CV_32FC1);
-                    transform[pos].second = cv::Mat();
-                    transform[pos].second.create(SRTMSize, SRTMSize, CV_32FC1);
-                }
-                transform[pos].first.at<float>(srtmDY, srtmDX) = y;
-                transform[pos].second.at<float>(srtmDY, srtmDX) = x;
-             }
-        }
-        cv::Mat cvRes(image.height(), image.width(), CV_32FC1, 0);
-        for (const auto& v : transform) {
-            const auto& tr = v.second;
-            const auto& pos = v.first;
-            const auto heights = getCvHeights(pos.first, pos.second);
-            cv::remap(heights, cvRes, tr.first, tr.second, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
-        }
-        Heights result;
-        result.resize(image.width());
-        for (int x=0; x<image.width(); x++) {
-            result[x].resize(image.height());
-            for (int y=0; y<image.height(); y++) {
-                result[x][y] = cvRes.at<float>(y,x);
-            }
-        }
-        return result;
-    }
+    Heights getHeightsForImage();
     
 private:
     static const int SRTMSize = 3601;
@@ -210,6 +173,16 @@ private:
     const Projector& proj;
     const MaxMinHandler minmax;
     std::map<std::pair<int, int>, Heights> heights;
+    
+    void writeMatrix(const cv::Mat& mat, const std::string& filename) {
+        std::ofstream f(filename);
+        for (int x=0; x<mat.size().width; x++) {
+            for (int y=0; y<mat.size().height; y++) {
+                f << mat.at<float>(y,x) << " ";
+            }
+            f << "\n";
+        }
+    }
     
     Heights loadHeights(std::string filename) {
         std::ifstream file(filename, std::ios::in|std::ios::binary);
@@ -266,13 +239,17 @@ private:
     }
     
     cv::Mat getCvHeights(int x, int y) {
+        std::cout << "start getCvHeights" << std::endl;
         const Heights& heights = getHeights(x, y);
-        cv::Mat cvRes(SRTMSize, SRTMSize, CV_32FC1, 0);
-        for (int x=0; x<image.width(); x++) {
-            for (int y=0; y<image.height(); y++) {
+        std::cout << "Before cvRes" << std::endl;
+        cv::Mat cvRes(SRTMSize, SRTMSize, CV_32FC1, -1);
+        std::cout << "Before loop " << cvRes.size() << " " << (void*)cvRes.data << std::endl;
+        for (int x=0; x<SRTMSize; x++) {
+            for (int y=0; y<SRTMSize; y++) {
                 cvRes.at<float>(y,x) = heights[x][y];
             }
         }
+        std::cout << "returning" << std::endl;
         return cvRes;
     }
     
@@ -305,6 +282,75 @@ private:
 
 };
 
+    template<>
+    SRTM<false>::Heights SRTM<false>::getHeightsForImage() {
+        Heights result;
+        result.resize(image.width());
+        for (int x=0; x<image.width(); x++) {
+            result[x].resize(image.height());
+            for (int y=0; y<image.height(); y++) {
+                double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
+                double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
+                point p = proj.invertTransform({rx, ry});
+                result[x][y] = getHeight(p.x, p.y);
+             }
+        }
+        return result;
+    }
+
+    template<>
+    SRTM<true>::Heights SRTM<true>::getHeightsForImage() {
+        std::set<std::pair<int, int>> needSrtm;
+        for (int x=0; x<image.width(); x++){
+            for (int y=0; y<image.height(); y++) {
+                double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
+                double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
+                point p = proj.invertTransform({rx, ry});
+                int srtmX = floor(p.x);
+                int srtmY = floor(p.y);
+                needSrtm.emplace(srtmX, srtmY);
+            }
+        }
+        std::cout << "total transforms need=" << needSrtm.size() << std::endl;
+        cv::Mat cvRes(image.height(), image.width(), CV_32FC1, -1);
+        for (const auto& pos: needSrtm) {
+            std::cout << "pos " << pos.first << " " << pos.second << std::endl;
+            cv::Mat trX(image.width(), image.height(), CV_32FC1, -1);
+            cv::Mat trY(image.width(), image.height(), CV_32FC1, -1);
+            for (int x=0; x<image.width(); x++) {
+                for (int y=0; y<image.height(); y++) {
+                    double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
+                    double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
+                    point p = proj.invertTransform({rx, ry});
+                    double fx = (p.x - pos.first) * SRTMSize;
+                    double fy = (pos.second + 1 - p.y) * SRTMSize;
+                    trX.at<float>(y, x) = fx;
+                    trY.at<float>(y, x) = fy;
+                }
+             }
+            std::cout << "Before getCvHeights " << std::endl;
+            cv::Mat heights = getCvHeights(pos.first, pos.second);
+            std::cout << "Before remap " << std::endl;
+            cv::remap(heights, cvRes, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+            writeMatrix(trX, "trX");
+            writeMatrix(trY, "trY");
+            writeMatrix(heights, "heights");
+            writeMatrix(cvRes, "cvRes");
+        }
+        std::cout << "Done remap " << image.width() << " " << image.height() << " " << (void*)cvRes.data << std::endl;
+        Heights result;
+        result.resize(image.width());
+        for (int x=0; x<image.width(); x++) {
+            result[x].resize(image.height());
+            for (int y=0; y<image.height(); y++) {
+                result[x][y] = cvRes.at<float>(y, x);
+            }
+        }
+        std::cout << "Done move" << std::endl;
+        return result;
+    }
+
+/*
 class RiverBasins2 {
 public:
     RiverBasins2(const SRTM::Heights heights_) : 
@@ -313,16 +359,6 @@ public:
         heights(heights_)
     {
         image.fill({255, 255, 255, 255});
-        
-        /*
-        for (int i=0; i<image.width(); i++) {
-            heights[i][0] = -INF/2;
-            heights[i][image.height()-1] = -INF/2;
-        }
-        for (int i=0; i<image.height(); i++) {
-            heights[0][i] = -INF/2;
-            heights[image.width()-1][i] = -INF/2;
-        }*/
         
         heights[image.width() - 1][image.height()/2] = -INF/2;
         paint();
@@ -349,14 +385,6 @@ private:
         std::set<std::pair<int, point>> q;
         std::vector<std::vector<int>> d;
         d.resize(image.width(), std::vector<int>(image.height(), INF));
-        /*
-        for (int y=0; y<image.height(); y++) {
-            for (int x=0; x<image.width(); x++)
-                std::cout << heights[x][y] << " ";
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-        */
         root = {-1,-1};
         for (int x=0; x<image.width(); x++)
             for (int y=0; y<image.height(); y++)
@@ -468,35 +496,11 @@ private:
         set_area(root.first, root.second);
         paint_from_v(root.first, root.second, 0, 1);
         paint_rivers();
-        /*
-        for (int y=0; y<image.height(); y++) {
-            for (int x=0; x<image.width(); x++) {
-                std::cout << parent[x][y].first << parent[x][y].second << " ";
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-        for (int y=0; y<image.height(); y++) {
-            for (int x=0; x<image.width(); x++) {
-                std::cout << area[x][y] << " ";
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-        for (int y=0; y<image.height(); y++) {
-            for (int x=0; x<image.width(); x++) {
-                for (auto p: childs[x][y]) {
-                    std::cout << p.first << p.second;
-                }
-                std::cout << ". ";
-            }
-            std::cout << std::endl;
-        }
-        */
     }
 };
+*/
 
-std::vector<std::vector<int>> RiverBasins2::area {};
+//std::vector<std::vector<int>> RiverBasins2::area {};
 
 QImage combine(const QImage& image1, const QImage& image2) {
     QImage result(image1);
@@ -540,6 +544,7 @@ int main(int argc, char* argv[]) {
     minmax.miny = center.y - 1000;
     
     
+    
     /*
     point center = proj.transform({37.6, 55.8});
     minmax.minx = center.x - 1000000;
@@ -549,7 +554,9 @@ int main(int argc, char* argv[]) {
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
-    SRTM srtm(proj, minmax);
+    SRTM<false> srtm(proj, minmax);
+    SRTM<true> srtmCv(proj, minmax);
+    /*
     RiverBasins2 basins(srtm.getHeightsForImage());
     
     Drawer drawer(proj, minmax);
@@ -585,7 +592,10 @@ int main(int argc, char* argv[]) {
     
     //combine(basins.getImage(), drawer.getImage()).save("test.png");
     basins.getImage().save("test.png");
-    srtm.getImage().save("test-1.png");
+    */
+    
+    srtm.getImage().save("test-old.png");
+    srtmCv.getImage().save("test-cv.png");
     
     return 0;
 }
