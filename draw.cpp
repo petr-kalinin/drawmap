@@ -62,16 +62,22 @@ private:
     projPJ resultProj;
 };
 
-class MaxMinHandler : public osmium::handler::Handler {
+struct MinMax {
+    double maxx, maxy, minx, miny;
+};
+
+class MinMaxHandler : public osmium::handler::Handler, public MinMax {
 public:
-    MaxMinHandler(const Projector& proj_) :
-        maxx(-1e10),
-        maxy(-1e10),
-        minx(1e10),
-        miny(1e10),
+    MinMaxHandler(const Projector& proj_) :
         proj(proj_)
-    {}
-    
+    {
+        maxx = -1e10;
+        maxy = -1e10;
+        minx = 1e10;
+        miny = 1e10;
+        
+    }
+
     void node(const osmium::Node& node) {
         point p = proj.transform({node.location().lon(), node.location().lat()});
         maxx = std::max(maxx, p.x);
@@ -80,7 +86,6 @@ public:
         miny = std::min(miny, p.y);
     }
     
-    double maxx, maxy, minx, miny;
     
 private:
     const Projector& proj;
@@ -88,7 +93,7 @@ private:
 
 class Drawer : public osmium::handler::Handler {
 public:
-    Drawer(const Projector& proj_, const MaxMinHandler& minmax_) : 
+    Drawer(const Projector& proj_, const MinMaxHandler& minmax_) : 
         scale(-1),
         image(IMAGE_SIZE, IMAGE_SIZE, QImage::Format_ARGB32),
         painter(&image),
@@ -141,13 +146,13 @@ private:
     QImage image;
     QPainter painter;
     const Projector& proj;
-    const MaxMinHandler& minmax;
+    const MinMaxHandler& minmax;
 }; 
 
 template<bool CV>
 class SRTM : public osmium::handler::Handler {
 public:
-    SRTM(const Projector& proj_, const MaxMinHandler& minmax_) : 
+    SRTM(const Projector& proj_, const MinMaxHandler& minmax_) : 
         image(IMAGE_SIZE, IMAGE_SIZE, QImage::Format_ARGB32),
         painter(&image),
         proj(proj_),
@@ -171,7 +176,7 @@ private:
     QImage image;
     QPainter painter;
     const Projector& proj;
-    const MaxMinHandler minmax;
+    const MinMaxHandler minmax;
     std::map<std::pair<int, int>, Heights> heights;
     
     void writeMatrix(const cv::Mat& mat, const std::string& filename) {
@@ -300,43 +305,51 @@ private:
 
     template<>
     SRTM<true>::Heights SRTM<true>::getHeightsForImage() {
-        std::set<std::pair<int, int>> needSrtm;
-        for (int x=0; x<image.width(); x++){
+        MinMax floorMinMax;
+        point minp = proj.invertTransform({minmax.minx, minmax.miny});
+        floorMinMax.minx = floor(minp.x);
+        floorMinMax.miny = floor(minp.y);
+        point maxp = proj.invertTransform({minmax.maxx, minmax.maxy});
+        floorMinMax.maxx = floor(maxp.x);
+        floorMinMax.maxy = floor(maxp.y);
+        cv::Mat source(
+            (SRTMSize-1) * (floorMinMax.maxy-floorMinMax.miny+1) + 1,
+            (SRTMSize-1) * (floorMinMax.maxx-floorMinMax.minx+1) + 1,
+            CV_32FC1,
+            -1
+        );
+        for (int x = floorMinMax.minx; x<=floorMinMax.maxx; x++) {
+            for (int y = floorMinMax.miny; y<=floorMinMax.maxy; y++) {
+                const Heights& heights = getHeights(x, y);
+                for (int dx = 0; dx < SRTMSize; dx++) {
+                    for (int dy = 0; dy < SRTMSize; dy++) {
+                        int nx = (x-floorMinMax.minx)*(SRTMSize-1)+dx;
+                        int ny = (y-floorMinMax.miny)*(SRTMSize-1)+dy;
+                        source.at<float>(ny, nx) = heights[dx][dy];
+                    }
+                }
+            }
+        }
+        writeMatrix(source, "source");
+        cv::Mat cvRes(image.height(), image.width(), CV_32FC1, -1);
+        cv::Mat trX(image.width(), image.height(), CV_32FC1, -1);
+        cv::Mat trY(image.width(), image.height(), CV_32FC1, -1);
+        for (int x=0; x<image.width(); x++) {
             for (int y=0; y<image.height(); y++) {
                 double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
                 double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
                 point p = proj.invertTransform({rx, ry});
-                int srtmX = floor(p.x);
-                int srtmY = floor(p.y);
-                needSrtm.emplace(srtmX, srtmY);
+                double fx = (p.x - floorMinMax.minx) * SRTMSize;
+                double fy = (floorMinMax.maxy + 1 - p.y) * SRTMSize;
+                trX.at<float>(y, x) = fx;
+                trY.at<float>(y, x) = fy;
             }
         }
-        std::cout << "total transforms need=" << needSrtm.size() << std::endl;
-        cv::Mat cvRes(image.height(), image.width(), CV_32FC1, -1);
-        for (const auto& pos: needSrtm) {
-            std::cout << "pos " << pos.first << " " << pos.second << std::endl;
-            cv::Mat trX(image.width(), image.height(), CV_32FC1, -1);
-            cv::Mat trY(image.width(), image.height(), CV_32FC1, -1);
-            for (int x=0; x<image.width(); x++) {
-                for (int y=0; y<image.height(); y++) {
-                    double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
-                    double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
-                    point p = proj.invertTransform({rx, ry});
-                    double fx = (p.x - pos.first) * SRTMSize;
-                    double fy = (pos.second + 1 - p.y) * SRTMSize;
-                    trX.at<float>(y, x) = fx;
-                    trY.at<float>(y, x) = fy;
-                }
-             }
-            std::cout << "Before getCvHeights " << std::endl;
-            cv::Mat heights = getCvHeights(pos.first, pos.second);
-            std::cout << "Before remap " << std::endl;
-            cv::remap(heights, cvRes, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
-            writeMatrix(trX, "trX");
-            writeMatrix(trY, "trY");
-            writeMatrix(heights, "heights");
-            writeMatrix(cvRes, "cvRes");
-        }
+        std::cout << "Before remap " << std::endl;
+        cv::remap(source, cvRes, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+        writeMatrix(trX, "trX");
+        writeMatrix(trY, "trY");
+        writeMatrix(cvRes, "cvRes");
         std::cout << "Done remap " << image.width() << " " << image.height() << " " << (void*)cvRes.data << std::endl;
         Heights result;
         result.resize(image.width());
@@ -522,7 +535,7 @@ int main(int argc, char* argv[]) {
     }
 
     Projector proj;
-    MaxMinHandler minmax(proj);
+    MinMaxHandler minmax(proj);
     
     /*
     minmax.minx = 4550000; // 4860000
@@ -539,9 +552,9 @@ int main(int argc, char* argv[]) {
     
     
     point center = proj.transform({43.739319, 56.162759});
-    minmax.minx = center.x - 1000;
-    minmax.maxx = center.x + 1000;
-    minmax.miny = center.y - 1000;
+    minmax.minx = center.x - 30000;
+    minmax.maxx = center.x + 30000;
+    minmax.miny = center.y - 30000;
     
     
     
