@@ -66,128 +66,35 @@ struct MinMax {
     double maxx, maxy, minx, miny;
 };
 
-class MinMaxHandler : public osmium::handler::Handler, public MinMax {
+class SRTMProvider {
 public:
-    MinMaxHandler(const Projector& proj_) :
-        proj(proj_)
-    {
-        maxx = -1e10;
-        maxy = -1e10;
-        minx = 1e10;
-        miny = 1e10;
-        
-    }
-
-    void node(const osmium::Node& node) {
-        point p = proj.transform({node.location().lon(), node.location().lat()});
-        maxx = std::max(maxx, p.x);
-        maxy = std::max(maxy, p.y);
-        minx = std::min(minx, p.x);
-        miny = std::min(miny, p.y);
-    }
-    
-    
-private:
-    const Projector& proj;
-};
-
-class Drawer : public osmium::handler::Handler {
-public:
-    Drawer(const Projector& proj_, const MinMaxHandler& minmax_) : 
-        scale(-1),
-        image(IMAGE_SIZE, IMAGE_SIZE, QImage::Format_ARGB32),
-        painter(&image),
-        proj(proj_),
-        minmax(minmax_)
-    {
-        image.fill({255, 255, 255, 0});
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setRenderHint(QPainter::TextAntialiasing, true);
-        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    }
-    
-    void way(const osmium::Way& way)  {
-        if (!way.get_value_by_key("highway"))
-            return;
-        if (scale < 0) {
-            double scaleX = image.width() / (minmax.maxx - minmax.minx);
-            double scaleY = image.height() / (minmax.maxy - minmax.miny);
-            scale = std::min(scaleX, scaleY);
-            std::cout << "scale=" << scale << std::endl;
-        }
-        QPainterPath path;
-        bool first = true;
-        for (const auto& node: way.nodes()) {
-            if (!node.location())
-                continue;
-            point p = proj.transform({node.lon(), node.lat()});
-            double x = scale * (p.x-minmax.minx);
-            double y = scale * (minmax.maxy-p.y);
-            if (first) {
-                path.moveTo(x, y);
-                first = false;
-            } else {
-                path.lineTo(x, y);
-            }
-        }
-        QPen pen({255, 0, 0});
-        pen.setWidth(2);
-        painter.setPen(pen);
-        
-        painter.drawPath(path);
-    }
-    
-    QImage& getImage() {
-        return image;
-    }
-    
-private:
-    double scale;
-    QImage image;
-    QPainter painter;
-    const Projector& proj;
-    const MinMaxHandler& minmax;
-}; 
-
-template<bool CV>
-class SRTM : public osmium::handler::Handler {
-public:
-    SRTM(const Projector& proj_, const MinMaxHandler& minmax_) : 
-        image(IMAGE_SIZE, IMAGE_SIZE, QImage::Format_ARGB32),
-        painter(&image),
-        proj(proj_),
-        minmax(minmax_)
-    {
-        image.fill({255, 255, 255, 255});
-        paint();
-    }
-    
-    QImage& getImage() {
-        return image;
-    }
-
     typedef std::vector<std::vector<int32_t>> Heights;
-
-    Heights getHeightsForImage();
     
-private:
-    static const int SRTMSize = 3601;
+    SRTMProvider(const Projector& proj_) : 
+        proj(proj_)
+    {}
     
-    QImage image;
-    QPainter painter;
-    const Projector& proj;
-    const MinMaxHandler minmax;
-    std::map<std::pair<int, int>, Heights> heights;
-    
-    void writeMatrix(const cv::Mat& mat, const std::string& filename) {
-        std::ofstream f(filename);
-        for (int x=0; x<mat.size().width; x++) {
-            for (int y=0; y<mat.size().height; y++) {
-                f << mat.at<float>(y,x) << " ";
-            }
-            f << "\n";
-        }
+    const Heights& getHeights(int x, int y) {
+        if (heights.count({x,y}) == 0)
+            heights[{x,y}] = loadHeights(x,y);
+        return heights[{x,y}];
     }
+
+    int16_t getHeight(double x, double y) {
+        int xx = std::floor(x);
+        int yy = std::floor(y);
+        const Heights& thisHeights = getHeights(xx, yy);
+        int fx = (x - xx) * SRTMSize;
+        int fy = (1 - (y - yy)) * SRTMSize;
+        //std::cout << "getHeight(" << x << " " << y << "   " << xx << " " << yy << "    " << fx << " " << fy << std::endl;
+        return thisHeights[fx][fy];
+    }
+    
+    static const int SRTMSize = 3601;
+private:
+    
+    const Projector& proj;
+    std::map<std::pair<int, int>, Heights> heights;
     
     Heights loadHeights(std::string filename) {
         std::ifstream file(filename, std::ios::in|std::ios::binary);
@@ -209,13 +116,6 @@ private:
                 heights[j][i] = (buffer[0] << 8) | buffer[1];
             }
         }
-        /*
-        QImage image(SRTMSize, SRTMSize, QImage::Format_ARGB32);
-        for (int x=0; x<image.width(); x++)
-            for (int y=0; y<image.height(); y++)
-                image.setPixel(x, y, heightToColor(heights[x][y]));
-        image.save((filename + ".png").c_str());
-        */
         return heights;
     }
     
@@ -236,75 +136,21 @@ private:
         
         return loadHeights(std::string("srtm/") + filename + ".hgt");
     }
-    
-    const Heights& getHeights(int x, int y) {
-        if (heights.count({x,y}) == 0)
-            heights[{x,y}] = loadHeights(x,y);
-        return heights[{x,y}];
-    }
-    
-    cv::Mat getCvHeights(int x, int y) {
-        std::cout << "start getCvHeights" << std::endl;
-        const Heights& heights = getHeights(x, y);
-        std::cout << "Before cvRes" << std::endl;
-        cv::Mat cvRes(SRTMSize, SRTMSize, CV_32FC1, -1);
-        std::cout << "Before loop " << cvRes.size() << " " << (void*)cvRes.data << std::endl;
-        for (int x=0; x<SRTMSize; x++) {
-            for (int y=0; y<SRTMSize; y++) {
-                cvRes.at<float>(y,x) = heights[x][y];
-            }
-        }
-        std::cout << "returning" << std::endl;
-        return cvRes;
-    }
-    
-    int16_t getHeight(double x, double y) {
-        int xx = std::floor(x);
-        int yy = std::floor(y);
-        const Heights& thisHeights = getHeights(xx, yy);
-        int fx = (x - xx) * SRTMSize;
-        int fy = (1 - (y - yy)) * SRTMSize;
-        //std::cout << "getHeight(" << x << " " << y << "   " << xx << " " << yy << "    " << fx << " " << fy << std::endl;
-        return thisHeights[fx][fy];
-    }
-    
-    QRgb heightToColor(int16_t height) {
-        if (height < 50) height = 50;
-        if (height > 200) height = 200;
-        height = 1.0* (height - 50) / (200 - 50) * 255;
-        QColor color({height, height, height});
-        return color.rgba();
-    }
-    
-    void paint() {
-        Heights heights = getHeightsForImage();
-        for (int x=0; x<image.width(); x++) {
-            for (int y=0; y<image.height(); y++) {
-                image.setPixel(x, y, heightToColor(heights[x][y]));
-             }
-        }
-    }
-
 };
 
-    template<>
-    SRTM<false>::Heights SRTM<false>::getHeightsForImage() {
-        Heights result;
-        result.resize(image.width());
-        for (int x=0; x<image.width(); x++) {
-            result[x].resize(image.height());
-            for (int y=0; y<image.height(); y++) {
-                double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
-                double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
-                point p = proj.invertTransform({rx, ry});
-                result[x][y] = getHeight(p.x, p.y);
-             }
-        }
-        return result;
-    }
+class SRTMtoCV {
+public:
+    typedef SRTMProvider::Heights Heights;
+    static const int SRTMSize = SRTMProvider::SRTMSize;
+    
+    SRTMtoCV(const Projector& proj_, const MinMax& minmax_) : 
+        provider(proj_),
+        minmax(minmax_),
+        proj(proj_)
+    {}
+    
 
-    template<>
-    SRTM<true>::Heights SRTM<true>::getHeightsForImage() {
+    cv::Mat getCvHeights() {
         MinMax floorMinMax;
         point minp = proj.invertTransform({minmax.minx, minmax.miny});
         floorMinMax.minx = floor(minp.x);
@@ -313,14 +159,14 @@ private:
         floorMinMax.maxx = floor(maxp.x);
         floorMinMax.maxy = floor(maxp.y);
         cv::Mat source(
-            (SRTMSize-1) * (floorMinMax.maxy-floorMinMax.miny+1) + 1,
-            (SRTMSize-1) * (floorMinMax.maxx-floorMinMax.minx+1) + 1,
+            (provider.SRTMSize-1) * (floorMinMax.maxy-floorMinMax.miny+1) + 1,
+            (provider.SRTMSize-1) * (floorMinMax.maxx-floorMinMax.minx+1) + 1,
             CV_32FC1,
             -1
         );
         for (int x = floorMinMax.minx; x<=floorMinMax.maxx; x++) {
             for (int y = floorMinMax.miny; y<=floorMinMax.maxy; y++) {
-                const Heights& heights = getHeights(x, y);
+                const Heights& heights = provider.getHeights(x, y);
                 for (int dx = 0; dx < SRTMSize; dx++) {
                     for (int dy = 0; dy < SRTMSize; dy++) {
                         int nx = (x-floorMinMax.minx)*(SRTMSize-1)+dx;
@@ -331,13 +177,13 @@ private:
             }
         }
         writeMatrix(source, "source");
-        cv::Mat cvRes(image.height(), image.width(), CV_32FC1, -1);
-        cv::Mat trX(image.width(), image.height(), CV_32FC1, -1);
-        cv::Mat trY(image.width(), image.height(), CV_32FC1, -1);
-        for (int x=0; x<image.width(); x++) {
-            for (int y=0; y<image.height(); y++) {
-                double rx = (minmax.minx + 1.0*x/image.width()*(minmax.maxx-minmax.minx));
-                double ry = (minmax.maxy - 1.0*y/image.height()*(minmax.maxy-minmax.miny));
+        cv::Mat cvRes(IMAGE_SIZE, IMAGE_SIZE, CV_32FC1, -1);
+        cv::Mat trX(cvRes.rows, cvRes.cols, CV_32FC1, -1);
+        cv::Mat trY(cvRes.rows, cvRes.cols, CV_32FC1, -1);
+        for (int x=0; x<cvRes.cols; x++) {
+            for (int y=0; y<cvRes.rows; y++) {
+                double rx = (minmax.minx + 1.0*x/cvRes.cols*(minmax.maxx-minmax.minx));
+                double ry = (minmax.maxy - 1.0*y/cvRes.rows*(minmax.maxy-minmax.miny));
                 point p = proj.invertTransform({rx, ry});
                 double fx = (p.x - floorMinMax.minx) * SRTMSize;
                 double fy = (floorMinMax.maxy + 1 - p.y) * SRTMSize;
@@ -350,192 +196,49 @@ private:
         writeMatrix(trX, "trX");
         writeMatrix(trY, "trY");
         writeMatrix(cvRes, "cvRes");
-        std::cout << "Done remap " << image.width() << " " << image.height() << " " << (void*)cvRes.data << std::endl;
-        Heights result;
-        result.resize(image.width());
-        for (int x=0; x<image.width(); x++) {
-            result[x].resize(image.height());
-            for (int y=0; y<image.height(); y++) {
-                result[x][y] = cvRes.at<float>(y, x);
-            }
-        }
-        std::cout << "Done move" << std::endl;
-        return result;
-    }
-
-/*
-class RiverBasins2 {
-public:
-    RiverBasins2(const SRTM::Heights heights_) : 
-        image(IMAGE_SIZE, IMAGE_SIZE, QImage::Format_ARGB32),
-        painter(&image),
-        heights(heights_)
-    {
-        image.fill({255, 255, 255, 255});
-        
-        heights[image.width() - 1][image.height()/2] = -INF/2;
-        paint();
-    }
-    
-    QImage& getImage() {
-        return image;
+        return cvRes;
     }
     
 private:
-    typedef std::pair<int, int> point;
-     
-    QImage image;
-    QPainter painter;
-    SRTM::Heights heights;
-    std::vector<std::vector<point>> parent;
-    static std::vector<std::vector<int>> area;
-    std::vector<std::vector<std::vector<point>>> childs;
-    static const int INF = 100000;
-    point root;
-    static const int MIN_AREA_FOR_RIVER = IMAGE_SIZE * IMAGE_SIZE / 500;
+    SRTMProvider provider;
+    const MinMax& minmax;
+    const Projector& proj;
     
-    void build_tree() {
-        std::set<std::pair<int, point>> q;
-        std::vector<std::vector<int>> d;
-        d.resize(image.width(), std::vector<int>(image.height(), INF));
-        root = {-1,-1};
-        for (int x=0; x<image.width(); x++)
-            for (int y=0; y<image.height(); y++)
-                if (heights[x][y] == -INF/2) {
-                    //std::cout << "found root " << x << y << std::endl;
-                    q.insert({-INF/2, {x, y}});
-                    d[x][y] = -INF/2;
-                    if (root.first >= 0) {
-                        parent[x][y] = root;
-                    } else {
-                        root = {x,y};
-                    }
-                }
-        while (!q.empty()) {
-            auto x = *q.begin();
-            q.erase(q.begin());
-            point p = x.second;
-            if (d[p.first][p.second] == -INF) continue;
-            d[p.first][p.second] = -INF;
-            point par = parent[p.first][p.second];
-            //std::cout << "Popped " << p.first << p.second << " " << x.first << " " << par.first << par.second << std::endl;
-            if (par.first >= 0)
-                childs[par.first][par.second].push_back(p);
-            for (int k=0; k<dx.size(); k++) {
-                int xx = p.first+dx[k];
-                int yy = p.second+dy[k];
-                if ((xx < 0) || (xx >= image.width()))
-                    continue;
-                if ((yy < 0) || (yy >= image.height()))
-                    continue;
-                //std::cout << "Try put " << xx << " " << yy << std::endl;
-                if (d[xx][yy] == -INF) continue;
-                //int w = heights[p.first][p.second] - heights[xx][yy];
-                int w = heights[xx][yy];
-                //std::cout << "was " << d[xx][yy] << " can be " << w << std::endl;
-                if (d[xx][yy] > w) {
-                    d[xx][yy] = w;
-                    parent[xx][yy] = p;
-                    q.insert({w, {xx, yy}});
-                }
+    void writeMatrix(const cv::Mat& mat, const std::string& filename) {
+        std::ofstream f(filename);
+        for (int x=0; x<mat.size().width; x++) {
+            for (int y=0; y<mat.size().height; y++) {
+                f << mat.at<float>(y,x) << " ";
             }
+            f << "\n";
         }
-    }
-    
-    QRgb color(double x, int height) {
-        QColor color({height*x, height*(1-x), 0});
-        return color.rgba();
-    }
-
-    QRgb riverColor(int area) {
-        double coeff = 0.3 + 0.7*std::log(1.0*area/MIN_AREA_FOR_RIVER) / std::log(1.0*IMAGE_SIZE*IMAGE_SIZE/MIN_AREA_FOR_RIVER);
-        QColor color({0, 0, 255*coeff});
-        return color.rgba();
-    }
-
-    void set_area(int x, int y) {
-        area[x][y] = 1;
-        for (int i=0; i<childs[x][y].size(); i++) {
-            set_area(childs[x][y][i].first, childs[x][y][i].second);
-            area[x][y] += area[childs[x][y][i].first][childs[x][y][i].second];
-            if (x==0 && y==0) {
-                //std::cout << "area +=" << area[childs[x][y][i].first][childs[x][y][i].second] << " = " << area[x][y] << std::endl;
-            }
-        }
-    }
-    
-    static bool compare_area(point a, point b) {
-        return area[a.first][a.second] > area[b.first][b.second];
-    }
-    
-    void paint_from_v(int x, int y, double l, double r) {
-        image.setPixel(x, y, color((l+r)/2, heights[x][y]));
-        //image.setPixel(x, y, color(1.0*area[x][y] / IMAGE_SIZE / IMAGE_SIZE));
-        if (childs[x][y].size() == 0)
-            return;
-        sort(childs[x][y].begin(), childs[x][y].end(), compare_area);
-        double step = (r-l) / area[x][y];
-        double pos = l;
-        for (int i=0; i<childs[x][y].size(); i++) {
-            double new_pos = pos + area[childs[x][y][i].first][childs[x][y][i].second] * step;
-            paint_from_v(childs[x][y][i].first, childs[x][y][i].second, pos, new_pos);
-            pos = new_pos;
-        }
-    }
-    
-    void paint_rivers() {
-        for (int x=0; x<image.width(); x++)
-            for (int y=0; y<image.height(); y++) {
-                if (area[x][y] > MIN_AREA_FOR_RIVER) {
-                    auto color = riverColor(area[x][y]);
-                    image.setPixel(x, y, color);
-                    image.setPixel(x+1, y, color);
-                    image.setPixel(x, y+1, color);
-                    image.setPixel(x+1, y+1, color);
-                }
-            }
-    }
-
-    void paint() {
-        parent.resize(image.width());
-        childs.resize(image.width());
-        area.resize(image.width());
-        for (int x=0; x<image.width(); x++) {
-            parent[x].resize(image.height(), {-1,-1});
-            childs[x].resize(image.height(), {});
-            area[x].resize(image.height(), 0);
-        }
-        build_tree();
-        set_area(root.first, root.second);
-        paint_from_v(root.first, root.second, 0, 1);
-        paint_rivers();
     }
 };
-*/
 
-//std::vector<std::vector<int>> RiverBasins2::area {};
-
-QImage combine(const QImage& image1, const QImage& image2) {
-    QImage result(image1);
-    QPainter painter(&result);
-    painter.drawImage(0, 0, image2);
-    
-    return result;
+QImage paint(cv::Mat mat) {
+    QImage image(mat.cols, mat.rows, QImage::Format_ARGB32);
+    QPainter painter(&image);
+    double maxVal, minVal;
+    cv::minMaxLoc(mat, &minVal, &maxVal);
+    for (int x=0; x<image.width(); x++) {
+        for (int y=0; y<image.height(); y++) {
+            float val = mat.at<float>(y, x);
+            int col = (val - minVal) / (maxVal - minVal) * 255;
+            QColor color({col, col, col});
+            image.setPixel(x, y, color.rgba());
+        }
+    }
+    return image;
 }
-
+    
 int main(int argc, char* argv[]) {
-    /*for (int i=-3; i<=3; i++)
-        for (int j=-3; j<=3; j++) {
-            dx.push_back(i);
-            dy.push_back(j);
-        }*/
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " OSMFILE\n";
         exit(1);
     }
 
     Projector proj;
-    MinMaxHandler minmax(proj);
+    MinMax minmax;
     
     /*
     minmax.minx = 4550000; // 4860000
@@ -567,48 +270,9 @@ int main(int argc, char* argv[]) {
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
-    SRTM<false> srtm(proj, minmax);
-    SRTM<true> srtmCv(proj, minmax);
-    /*
-    RiverBasins2 basins(srtm.getHeightsForImage());
+    SRTMtoCV srtm(proj, minmax);
     
-    Drawer drawer(proj, minmax);
-    
-    for (int i=1; i<argc; i++) {
-        std::cout << argv[i] << std::endl;
-        //osmium::handler::Dump handler(std::cout);
-        osmium::io::File infile(argv[i]);
-
-        osmium::area::Assembler::config_type assembler_config;
-        osmium::area::MultipolygonCollector<osmium::area::Assembler> collector(assembler_config);
-
-        std::cerr << "Pass 1...\n";
-        osmium::io::Reader reader1(infile);
-        collector.read_relations(reader1);
-        reader1.close();
-        std::cerr << "Pass 1 done\n";
-
-
-        index_pos_type index_pos;
-        index_neg_type index_neg;
-        location_handler_type location_handler(index_pos, index_neg);
-        location_handler.ignore_errors(); // XXX
-
-        std::cerr << "Pass 2...\n";
-        osmium::io::Reader reader2(infile);
-        osmium::apply(reader2, location_handler,  drawer, collector.handler([&drawer](osmium::memory::Buffer&& buffer) {
-            osmium::apply(buffer, drawer);
-        }));
-        reader2.close();
-        std::cerr << "Pass 2 done\n";
-    }
-    
-    //combine(basins.getImage(), drawer.getImage()).save("test.png");
-    basins.getImage().save("test.png");
-    */
-    
-    srtm.getImage().save("test-old.png");
-    srtmCv.getImage().save("test-cv.png");
+    paint(srtm.getCvHeights()).save("test-cv.png");
     
     return 0;
 }
