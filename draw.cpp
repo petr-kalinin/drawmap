@@ -151,6 +151,8 @@ public:
     
 
     cv::Mat getCvHeights() {
+        if (!cvHeights.empty())
+            return cvHeights;
         MinMax floorMinMax;
         point minp = proj.invertTransform({minmax.minx, minmax.miny});
         floorMinMax.minx = floor(minp.x);
@@ -170,20 +172,23 @@ public:
                 for (int dx = 0; dx < SRTMSize; dx++) {
                     for (int dy = 0; dy < SRTMSize; dy++) {
                         int nx = (x-floorMinMax.minx)*(SRTMSize-1)+dx;
-                        int ny = (y-floorMinMax.miny)*(SRTMSize-1)+dy;
+                        int ny = (floorMinMax.maxy-y)*(SRTMSize-1)+dy;
                         source.at<float>(ny, nx) = heights[dx][dy];
                     }
                 }
             }
         }
+        cv::Mat sourceSmoothed;
+        cv::bilateralFilter(source, sourceSmoothed, -1, 10, 5);
+        source = sourceSmoothed;
         writeMatrix(source, "source");
-        cv::Mat cvRes(IMAGE_SIZE, IMAGE_SIZE, CV_32FC1, -1);
-        cv::Mat trX(cvRes.rows, cvRes.cols, CV_32FC1, -1);
-        cv::Mat trY(cvRes.rows, cvRes.cols, CV_32FC1, -1);
-        for (int x=0; x<cvRes.cols; x++) {
-            for (int y=0; y<cvRes.rows; y++) {
-                double rx = (minmax.minx + 1.0*x/cvRes.cols*(minmax.maxx-minmax.minx));
-                double ry = (minmax.maxy - 1.0*y/cvRes.rows*(minmax.maxy-minmax.miny));
+        cvHeights.create(IMAGE_SIZE, IMAGE_SIZE, CV_32FC1);
+        cv::Mat trX(cvHeights.rows, cvHeights.cols, CV_32FC1, -1);
+        cv::Mat trY(cvHeights.rows, cvHeights.cols, CV_32FC1, -1);
+        for (int x=0; x<cvHeights.cols; x++) {
+            for (int y=0; y<cvHeights.rows; y++) {
+                double rx = (minmax.minx + 1.0*x/cvHeights.cols*(minmax.maxx-minmax.minx));
+                double ry = (minmax.maxy - 1.0*y/cvHeights.rows*(minmax.maxy-minmax.miny));
                 point p = proj.invertTransform({rx, ry});
                 double fx = (p.x - floorMinMax.minx) * SRTMSize;
                 double fy = (floorMinMax.maxy + 1 - p.y) * SRTMSize;
@@ -192,17 +197,32 @@ public:
             }
         }
         std::cout << "Before remap " << std::endl;
-        cv::remap(source, cvRes, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+        cv::remap(source, cvHeights, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
         writeMatrix(trX, "trX");
         writeMatrix(trY, "trY");
-        writeMatrix(cvRes, "cvRes");
-        return cvRes;
+        writeMatrix(cvHeights, "cvHeights");
+        return cvHeights;
+    }
+    
+    cv::Mat getXGrad() {
+        cv::Mat source = getCvHeights();
+        cv::Mat res;
+        Sobel(source, res, -1, 1, 0, 5);
+        return res;
+    }
+    
+    cv::Mat getYGrad() {
+        cv::Mat source = getCvHeights();
+        cv::Mat res;
+        Sobel(source, res, -1, 0, 1, 5);
+        return res;
     }
     
 private:
     SRTMProvider provider;
     const MinMax& minmax;
     const Projector& proj;
+    cv::Mat cvHeights;
     
     void writeMatrix(const cv::Mat& mat, const std::string& filename) {
         std::ofstream f(filename);
@@ -215,7 +235,7 @@ private:
     }
 };
 
-QImage paint(cv::Mat mat) {
+QImage paint(const cv::Mat& mat) {
     QImage image(mat.cols, mat.rows, QImage::Format_ARGB32);
     QPainter painter(&image);
     double maxVal, minVal;
@@ -225,6 +245,39 @@ QImage paint(cv::Mat mat) {
             float val = mat.at<float>(y, x);
             int col = (val - minVal) / (maxVal - minVal) * 255;
             QColor color({col, col, col});
+            image.setPixel(x, y, color.rgba());
+        }
+    }
+    return image;
+}
+
+void clip(int& c) {
+    if (c < 0) c = 0;
+    if (c > 255) c = 255;
+}
+    
+QImage paintGrads(const cv::Mat& xGrad, const cv::Mat& yGrad) {
+    QImage image(xGrad.cols, xGrad.rows, QImage::Format_ARGB32);
+    QPainter painter(&image);
+    double maxVal = 300;
+    double yellowFac = 0.15;
+    for (int x=0; x<image.width(); x++) {
+        for (int y=0; y<image.height(); y++) {
+            float xg = xGrad.at<float>(y, x);
+            float yg = yGrad.at<float>(y, x);
+            float gray = (-xg - 3*yg)/sqrt(3*3+1*1);
+            float yellow = yellowFac * (2 * xg + yg)/sqrt(2*2+1*1);
+            if (yellow < 0) yellow = 0;
+            if (gray < 0) gray = 0;
+            gray = gray/maxVal*255;
+            yellow = yellow/maxVal*255;
+            int r = 255 - gray;
+            int g = 255 - gray - 0.05*yellow;
+            int b = 255 - gray - yellow;
+            clip(r);
+            clip(g);
+            clip(b);
+            QColor color({r, g, b});
             image.setPixel(x, y, color.rgba());
         }
     }
@@ -255,9 +308,9 @@ int main(int argc, char* argv[]) {
     
     
     point center = proj.transform({43.739319, 56.162759});
-    minmax.minx = center.x - 30000;
-    minmax.maxx = center.x + 30000;
-    minmax.miny = center.y - 30000;
+    minmax.minx = center.x - 10000;
+    minmax.maxx = center.x + 10000;
+    minmax.miny = center.y - 10000;
     
     
     
@@ -273,6 +326,9 @@ int main(int argc, char* argv[]) {
     SRTMtoCV srtm(proj, minmax);
     
     paint(srtm.getCvHeights()).save("test-cv.png");
+    //paint(srtm.getXGrad()).save("test-xgrad.png");
+    //paint(srtm.getYGrad()).save("test-ygrad.png");
+    paintGrads(srtm.getXGrad(), srtm.getYGrad()).save("test-grads.png");
     
     return 0;
 }
