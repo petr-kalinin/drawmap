@@ -66,6 +66,55 @@ struct MinMax {
     double maxx, maxy, minx, miny;
 };
 
+QImage paint(const cv::Mat& mat) {
+    QImage image(mat.cols, mat.rows, QImage::Format_ARGB32);
+    QPainter painter(&image);
+    double maxVal, minVal;
+    cv::minMaxLoc(mat, &minVal, &maxVal);
+    for (int x=0; x<image.width(); x++) {
+        for (int y=0; y<image.height(); y++) {
+            float val = mat.at<float>(y, x);
+            int col = (val - minVal) / (maxVal - minVal) * 255;
+            QColor color({col, col, col});
+            image.setPixel(x, y, color.rgba());
+        }
+    }
+    return image;
+}
+
+void clip(int& c) {
+    if (c < 0) c = 0;
+    if (c > 255) c = 255;
+}
+    
+QImage paintGrads(const cv::Mat& xGrad, const cv::Mat& yGrad) {
+    QImage image(xGrad.cols, xGrad.rows, QImage::Format_ARGB32);
+    QPainter painter(&image);
+    double maxVal = 2000;
+    double yellowFac = 0.5;
+    for (int x=0; x<image.width(); x++) {
+        for (int y=0; y<image.height(); y++) {
+            float xg = xGrad.at<float>(y, x);
+            float yg = yGrad.at<float>(y, x);
+            float gray = (-xg - 3*yg)/sqrt(3*3+1*1);
+            float yellow = yellowFac * (2 * xg + yg)/sqrt(2*2+1*1);
+            if (yellow < 0) yellow = 0;
+            if (gray < 0) gray = 0;
+            gray = gray/maxVal*255;
+            yellow = yellow/maxVal*255;
+            int r = 255 - gray;
+            int g = 255 - gray - 0.05*yellow;
+            int b = 255 - gray - yellow;
+            clip(r);
+            clip(g);
+            clip(b);
+            QColor color({r, g, b});
+            image.setPixel(x, y, color.rgba());
+        }
+    }
+    return image;
+}
+    
 class SRTMProvider {
 public:
     typedef std::vector<std::vector<int32_t>> Heights;
@@ -147,12 +196,12 @@ public:
         provider(proj_),
         minmax(minmax_),
         proj(proj_)
-    {}
+    {
+        calc();
+    }
     
 
-    cv::Mat getCvHeights() {
-        if (!cvHeights.empty())
-            return cvHeights;
+    void calc() {
         MinMax floorMinMax;
         point minp = proj.invertTransform({minmax.minx, minmax.miny});
         floorMinMax.minx = floor(minp.x);
@@ -182,6 +231,17 @@ public:
         cv::bilateralFilter(source, sourceSmoothed, -1, 10, 5);
         source = sourceSmoothed;
         writeMatrix(source, "source");
+        
+        paint(source).save("source.png");
+        
+        cv::Mat sourceXgrad;
+        Sobel(source, sourceXgrad, -1, 1, 0, 5);
+        cv::Mat sourceYgrad;
+        Sobel(source, sourceYgrad, -1, 0, 1, 5);
+
+        paint(sourceXgrad).save("sourceXgrad.png");
+        paint(sourceYgrad).save("sourceYgrad.png");
+        
         cvHeights.create(IMAGE_SIZE, IMAGE_SIZE, CV_32FC1);
         cv::Mat trX(cvHeights.rows, cvHeights.cols, CV_32FC1, -1);
         cv::Mat trY(cvHeights.rows, cvHeights.cols, CV_32FC1, -1);
@@ -198,24 +258,23 @@ public:
         }
         std::cout << "Before remap " << std::endl;
         cv::remap(source, cvHeights, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+        cv::remap(sourceXgrad, xGrad, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+        cv::remap(sourceYgrad, yGrad, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
         writeMatrix(trX, "trX");
         writeMatrix(trY, "trY");
         writeMatrix(cvHeights, "cvHeights");
+    }
+    
+    cv::Mat getCvHeights() {
         return cvHeights;
     }
     
     cv::Mat getXGrad() {
-        cv::Mat source = getCvHeights();
-        cv::Mat res;
-        Sobel(source, res, -1, 1, 0, 5);
-        return res;
+        return xGrad;
     }
     
     cv::Mat getYGrad() {
-        cv::Mat source = getCvHeights();
-        cv::Mat res;
-        Sobel(source, res, -1, 0, 1, 5);
-        return res;
+        return yGrad;
     }
     
 private:
@@ -223,6 +282,7 @@ private:
     const MinMax& minmax;
     const Projector& proj;
     cv::Mat cvHeights;
+    cv::Mat xGrad, yGrad;
     
     void writeMatrix(const cv::Mat& mat, const std::string& filename) {
         std::ofstream f(filename);
@@ -235,55 +295,6 @@ private:
     }
 };
 
-QImage paint(const cv::Mat& mat) {
-    QImage image(mat.cols, mat.rows, QImage::Format_ARGB32);
-    QPainter painter(&image);
-    double maxVal, minVal;
-    cv::minMaxLoc(mat, &minVal, &maxVal);
-    for (int x=0; x<image.width(); x++) {
-        for (int y=0; y<image.height(); y++) {
-            float val = mat.at<float>(y, x);
-            int col = (val - minVal) / (maxVal - minVal) * 255;
-            QColor color({col, col, col});
-            image.setPixel(x, y, color.rgba());
-        }
-    }
-    return image;
-}
-
-void clip(int& c) {
-    if (c < 0) c = 0;
-    if (c > 255) c = 255;
-}
-    
-QImage paintGrads(const cv::Mat& xGrad, const cv::Mat& yGrad) {
-    QImage image(xGrad.cols, xGrad.rows, QImage::Format_ARGB32);
-    QPainter painter(&image);
-    double maxVal = 300;
-    double yellowFac = 0.15;
-    for (int x=0; x<image.width(); x++) {
-        for (int y=0; y<image.height(); y++) {
-            float xg = xGrad.at<float>(y, x);
-            float yg = yGrad.at<float>(y, x);
-            float gray = (-xg - 3*yg)/sqrt(3*3+1*1);
-            float yellow = yellowFac * (2 * xg + yg)/sqrt(2*2+1*1);
-            if (yellow < 0) yellow = 0;
-            if (gray < 0) gray = 0;
-            gray = gray/maxVal*255;
-            yellow = yellow/maxVal*255;
-            int r = 255 - gray;
-            int g = 255 - gray - 0.05*yellow;
-            int b = 255 - gray - yellow;
-            clip(r);
-            clip(g);
-            clip(b);
-            QColor color({r, g, b});
-            image.setPixel(x, y, color.rgba());
-        }
-    }
-    return image;
-}
-    
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " OSMFILE\n";
@@ -326,8 +337,8 @@ int main(int argc, char* argv[]) {
     SRTMtoCV srtm(proj, minmax);
     
     paint(srtm.getCvHeights()).save("test-cv.png");
-    //paint(srtm.getXGrad()).save("test-xgrad.png");
-    //paint(srtm.getYGrad()).save("test-ygrad.png");
+    paint(srtm.getXGrad()).save("test-xgrad.png");
+    paint(srtm.getYGrad()).save("test-ygrad.png");
     paintGrads(srtm.getXGrad(), srtm.getYGrad()).save("test-grads.png");
     
     return 0;
