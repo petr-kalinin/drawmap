@@ -1,2 +1,3 @@
 #!/bin/bash
-./draw ./data/RU-NIZ.osm.pbf
+cd run
+../draw ../data/RU-NIZ.osm.pbf

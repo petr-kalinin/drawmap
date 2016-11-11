@@ -7,4 +7,4 @@ LIBS += -lz -lproj -lopencv_highgui -lopencv_core -lopencv_imgproc
 QMAKE_CXXFLAGS += -std=c++11 -g
 
 # Input
-SOURCES += draw.cpp
+SOURCES += src/draw.cpp src/srtm.cpp src/common.cpp
