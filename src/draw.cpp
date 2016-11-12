@@ -9,6 +9,14 @@
 
 const int IMAGE_SIZE = 4000;
 
+QImage combine(const QImage& image1, const QImage& image2) {
+    QImage result(image1);
+    QPainter painter(&result);
+    painter.drawImage(0, 0, image2);
+    
+    return result;
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " OSMFILE\n";
@@ -48,14 +56,12 @@ int main(int argc, char* argv[]) {
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
 
-    /*
     SRTMtoCV srtm(proj, minmax, IMAGE_SIZE);
     
     cvPaint::paint(srtm.getCvHeights()).save("test-cv.png");
     cvPaint::paint(srtm.getXGrad()).save("test-xgrad.png");
     cvPaint::paint(srtm.getYGrad()).save("test-ygrad.png");
     cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad()).save("test-grads.png");
-    */
     
     OsmRoadsHandler roads(proj, minmax, IMAGE_SIZE);
     OsmDrawer osm;
@@ -64,7 +70,11 @@ int main(int argc, char* argv[]) {
     
     osm.dispatch(argv[1]);
     
+    auto hills = cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad());
+    
     roads.getImage().save("roads.png");
+    
+    combine(hills, roads.getImage()).save("final.png");
     
     return 0;
 }

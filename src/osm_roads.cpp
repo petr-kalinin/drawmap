@@ -8,7 +8,7 @@ OsmRoadsHandler::OsmRoadsHandler(const Projector& proj_, const MinMax& minmax_, 
     proj(proj_),
     minmax(minmax_)
 {
-    image.fill({255, 255, 255});
+    image.fill({255, 255, 255, 0});
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
