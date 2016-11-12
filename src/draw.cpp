@@ -1,5 +1,8 @@
 #include "srtm.h"
 
+#include "osm_roads.h"
+#include "osm_main.h"
+
 #include <QImage>
 
 #include <iostream>
@@ -44,13 +47,24 @@ int main(int argc, char* argv[]) {
     */
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
-    
+
+    /*
     SRTMtoCV srtm(proj, minmax, IMAGE_SIZE);
     
     cvPaint::paint(srtm.getCvHeights()).save("test-cv.png");
     cvPaint::paint(srtm.getXGrad()).save("test-xgrad.png");
     cvPaint::paint(srtm.getYGrad()).save("test-ygrad.png");
     cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad()).save("test-grads.png");
+    */
+    
+    OsmRoadsHandler roads(proj, minmax, IMAGE_SIZE);
+    OsmDrawer osm;
+    
+    osm.addHandler(&roads);
+    
+    osm.dispatch(argv[1]);
+    
+    roads.getImage().save("roads.png");
     
     return 0;
 }

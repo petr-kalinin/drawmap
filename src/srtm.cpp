@@ -138,6 +138,7 @@ void SRTMtoCV::calc() {
     cv::remap(source, cvHeights, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
     cv::remap(sourceXgrad, xGrad, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
     cv::remap(sourceYgrad, yGrad, trX, trY, cv::INTER_LINEAR, cv::BORDER_TRANSPARENT);
+    //TODO: correct
     //writeMatrix(trX, "trX");
     //writeMatrix(trY, "trY");
     //writeMatrix(cvHeights, "cvHeights");

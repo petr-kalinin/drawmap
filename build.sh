@@ -1,2 +1,2 @@
 #!/bin/bash
-qmake && make
+qmake && make -j 4
