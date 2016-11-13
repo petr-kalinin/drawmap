@@ -2,6 +2,7 @@
 
 #include <proj_api.h>
 #include <cmath>
+#include <QImage>
 
 struct point {
     double x,y;
@@ -24,3 +25,4 @@ struct MinMax {
     double maxx, maxy, minx, miny;
 };
 
+QImage combine(const QImage& image1, const QImage& image2);

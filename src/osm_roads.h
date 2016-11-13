@@ -14,12 +14,12 @@ public:
     
     virtual void way(const osmium::Way &way);
     
-    const QImage& getImage() const;
+    QImage getImage() const;
     
 private:
     double scale;
-    QImage image;
-    QPainter painter;
+    QImage imageFillMain, imageFillSide, imageOutline;
+    QPainter painterFillMain, painterFillSide, painterOutline;
     const Projector& proj;
     const MinMax& minmax;
 }; 

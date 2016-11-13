@@ -9,14 +9,6 @@
 
 const int IMAGE_SIZE = 4000;
 
-QImage combine(const QImage& image1, const QImage& image2) {
-    QImage result(image1);
-    QPainter painter(&result);
-    painter.drawImage(0, 0, image2);
-    
-    return result;
-}
-
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " OSMFILE\n";
