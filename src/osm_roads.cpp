@@ -1,6 +1,8 @@
 #include "osm_roads.h"
 
 #include <osmium/osm/way.hpp>
+#include <QPainterPathStroker>
+#include <Qt>
 
 OsmRoadsHandler::OsmRoadsHandler(const Projector& proj_, const MinMax& minmax_, int imageSize) : 
     image(imageSize, imageSize, QImage::Format_ARGB32),
@@ -35,8 +37,20 @@ void OsmRoadsHandler::way(const osmium::Way& way)  {
             path.lineTo(x, y);
         }
     }
-    painter.setPen({0, 0, 0});
-    painter.drawPath(path);
+    
+    QPainterPathStroker stroker;
+    stroker.setWidth(4);
+    stroker.setJoinStyle(Qt::PenJoinStyle::RoundJoin);
+    stroker.setCapStyle(Qt::PenCapStyle::FlatCap);
+    
+    QPainterPath strokeForLine = stroker.createStroke(path);
+    
+    stroker.setCapStyle(Qt::PenCapStyle::SquareCap);
+    QPainterPath strokeForFill = stroker.createStroke(path);
+    
+    painter.setPen(QPen(QColor(0, 0, 0), 2));
+    painter.drawPath(strokeForLine);
+    painter.fillPath(strokeForFill, QColor(128, 128, 128));
 }
 
 const QImage& OsmRoadsHandler::getImage() const {
