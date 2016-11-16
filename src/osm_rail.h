@@ -8,9 +8,9 @@
 #include <QImage>
 #include <QPainter>
 
-class OsmRoadsHandler : public BaseHandler {
+class OsmRailHandler : public BaseHandler {
 public:
-    OsmRoadsHandler(const Projector& proj_, const MinMax& minmax_, int imageSize);
+    OsmRailHandler(const Projector& proj_, const MinMax& minmax_, int imageSize);
     
     virtual void way(const osmium::Way &way);
     
@@ -18,9 +18,8 @@ public:
     
 private:
     double scale;
-    QImage imageFillMain, imageFillSide, imageOutline;
-    QPainter painterFillMain, painterFillSide, painterOutline;
-    QPainterPath allRoadsPath;
+    QImage imageFill, imageOutline;
+    QPainter painterFill, painterOutline;
     const Projector& proj;
     const MinMax& minmax;
 }; 

@@ -21,15 +21,22 @@ namespace {
     QColor sideRoadFill{255, 255, 255};
     QColor sideRoadOutline{128, 128, 128};
     
+    int BASE_WIDTH = 8;
+    
     std::map<std::string, RoadOptions> options {
-        {"motorway", {mainRoadFill, mainRoadOutline, 8, RoadType::MAIN}},
-        {"trunk", {mainRoadFill, mainRoadOutline, 8, RoadType::MAIN}},
-        {"primary", {mainRoadFill, mainRoadOutline, 6, RoadType::MAIN}},
-        {"secondary", {mainRoadFill, mainRoadOutline, 4, RoadType::MAIN}},
-        {"tertiary", {sideRoadFill, sideRoadOutline, 4, RoadType::SIDE}},
-        {"unclassified", {sideRoadFill, sideRoadOutline, 4, RoadType::SIDE}},
-        {"residential", {sideRoadFill, sideRoadOutline, 3, RoadType::SIDE}},
-        {"service", {sideRoadFill, sideRoadOutline, 3, RoadType::SIDE}}
+        {"motorway", {mainRoadFill, mainRoadOutline, BASE_WIDTH*3, RoadType::MAIN}},
+        {"motorway_link", {mainRoadFill, mainRoadOutline, BASE_WIDTH, RoadType::MAIN}},
+        {"trunk", {mainRoadFill, mainRoadOutline, BASE_WIDTH*3, RoadType::MAIN}},
+        {"trunk_link", {mainRoadFill, mainRoadOutline, BASE_WIDTH, RoadType::MAIN}},
+        {"primary", {mainRoadFill, mainRoadOutline, BASE_WIDTH*2, RoadType::MAIN}},
+        {"primary_link", {mainRoadFill, mainRoadOutline, BASE_WIDTH, RoadType::MAIN}},
+        {"secondary", {mainRoadFill, mainRoadOutline, BASE_WIDTH*2, RoadType::MAIN}},
+        {"secondary_link", {mainRoadFill, mainRoadOutline, BASE_WIDTH, RoadType::MAIN}},
+        {"tertiary", {sideRoadFill, sideRoadOutline, BASE_WIDTH*2, RoadType::SIDE}},
+        {"tertiary_link", {sideRoadFill, sideRoadOutline, BASE_WIDTH, RoadType::SIDE}},
+        {"unclassified", {sideRoadFill, sideRoadOutline, BASE_WIDTH, RoadType::SIDE}}//,
+        //{"residential", {sideRoadFill, sideRoadOutline, 3, RoadType::SIDE}},
+        //{"service", {sideRoadFill, sideRoadOutline, 3, RoadType::SIDE}}
     };
 }
 
@@ -96,8 +103,16 @@ void OsmRoadsHandler::way(const osmium::Way& way)  {
         painterFillMain.fillPath(strokeFill, option->second.fillColor);
     else
         painterFillSide.fillPath(strokeFill, option->second.fillColor);
+
+    static int nInside = 0; 
+    if (strokeFill.intersects(QRectF(0, 0, imageFillMain.width(), imageFillMain.height()))) {
+        nInside++;
+        if (nInside % 100 == 0) std::cout << nInside << std::endl;
+        allRoadsPath += strokeFill;
+    }
 }
 
 QImage OsmRoadsHandler::getImage() const {
+    const_cast<QPainter&>(painterFillMain).fillPath(allRoadsPath, QColor(0, 255, 0));
     return combine(combine(imageOutline, imageFillSide), imageFillMain);
 }
