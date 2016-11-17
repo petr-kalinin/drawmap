@@ -74,6 +74,9 @@ int main(int argc, char* argv[]) {
     OsmRoadsHandler roads(proj, minmax, IMAGE_SIZE);
     OsmRailHandler rail(proj, minmax, IMAGE_SIZE);
     OsmPlacesHandler places(proj, minmax, IMAGE_SIZE);
+    
+    roads.setPlacesPath(places.getUnitedPath());
+    places.setRoadsPath(roads.getUnitedPath());
 
     OsmDrawer osm;
     osm.addHandler(&roads);

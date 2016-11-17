@@ -17,4 +17,5 @@ public:
     virtual void inner_ring (const osmium::InnerRing &) {}
     virtual void changeset_discussion (const osmium::ChangesetDiscussion &) {}
     virtual void flush () {}
+    virtual void finalize() {};
 };

@@ -14,13 +14,19 @@ public:
     
     virtual void way(const osmium::Way &way);
     
+    virtual void finalize();
+    
     QImage getImage() const;
+
+    const QPainterPath& getUnitedPath() const;
+    
+    void setPlacesPath(const QPainterPath& path);
     
 private:
     double scale;
-    QImage imageFillMain, imageFillSide, imageOutline;
-    QPainter painterFillMain, painterFillSide, painterOutline;
-    QPainterPath allRoadsPath;
+    QImage image;
+    QPainterPath mainPath, sidePath, unitedPath;
+    const QPainterPath* placesPath;
     const Projector& proj;
     const MinMax& minmax;
 }; 

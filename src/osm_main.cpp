@@ -71,6 +71,10 @@ public:
     virtual void flush () const noexcept {
         for (auto& h : handlers) h->flush();
     }
+
+    virtual void finalize () const noexcept {
+        for (auto& h : handlers) h->finalize();
+    }
 private:
     std::vector<BaseHandler*> handlers;
 };
@@ -110,4 +114,6 @@ void OsmDrawer::dispatch(const std::string& filename) {
     }));
     reader2.close();
     std::cerr << "Pass 2 done\n";
+    
+    proxy.finalize();
 }

@@ -11,22 +11,13 @@ namespace {
 }
 
 OsmPlacesHandler::OsmPlacesHandler(const Projector& proj_, const MinMax& minmax_, int imageSize) : 
-    imageFill(imageSize, imageSize, QImage::Format_ARGB32),
-    imageOutline(imageSize, imageSize, QImage::Format_ARGB32),
-    painterFill(&imageFill),
-    painterOutline(&imageOutline),
+    image(imageSize, imageSize, QImage::Format_ARGB32),
     proj(proj_),
     minmax(minmax_)
 {
-    imageFill.fill({255, 255, 255, 0});
-    imageOutline.fill({255, 255, 255, 0});
-    for (auto painter: {&painterFill, &painterOutline}) {
-        painter->setRenderHint(QPainter::Antialiasing, true);
-        painter->setRenderHint(QPainter::TextAntialiasing, true);
-        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-    }
-    double scaleX = imageFill.width() / (minmax.maxx - minmax.minx);
-    double scaleY = imageFill.height() / (minmax.maxy - minmax.miny);
+    image.fill({255, 255, 255, 0});
+    double scaleX = image.width() / (minmax.maxx - minmax.minx);
+    double scaleY = image.height() / (minmax.maxy - minmax.miny);
     scale = std::min(scaleX, scaleY);
 }
 
@@ -65,12 +56,34 @@ void OsmPlacesHandler::area(const osmium::Area& area)  {
                 path.lineTo(x, y);
             }
         }
-        painterOutline.setPen(QPen(QColor(0,0,0)));
-        painterOutline.drawPath(path);
-        painterFill.fillPath(path, QColor(128, 128, 128));
+        if (path.intersects(QRectF(0, 0, image.width(), image.height()))) {
+            unitedPath += path;
+        }
     }
 }
 
+const QPainterPath& OsmPlacesHandler::getUnitedPath() const {
+    return unitedPath;
+}
+
+void OsmPlacesHandler::setRoadsPath(const QPainterPath& path) {
+    roadsPath = &path;
+}
+
+void OsmPlacesHandler::finalize()
+{
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    
+    QPainterPath needPath = unitedPath - *roadsPath;
+    
+    painter.setPen(QPen(QColor(0,0,0), 4));
+    painter.drawPath(needPath);
+    painter.fillPath(needPath, QColor(128, 128, 128));
+}
+
 QImage OsmPlacesHandler::getImage() const {
-    return combine(imageOutline, imageFill);
+    return image;
 }

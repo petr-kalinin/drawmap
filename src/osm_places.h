@@ -14,14 +14,21 @@ public:
     
     virtual void area(const osmium::Area &area);
     
+    virtual void finalize();
+    
     QImage getImage() const;
+    
+    const QPainterPath& getUnitedPath() const;
+    
+    void setRoadsPath(const QPainterPath& path);
     
 private:
     bool needArea(const osmium::Area &area) const;
     
     double scale;
-    QImage imageFill, imageOutline;
-    QPainter painterFill, painterOutline;
+    QImage image;
+    QPainterPath unitedPath;
+    const QPainterPath* roadsPath;
     const Projector& proj;
     const MinMax& minmax;
 }; 

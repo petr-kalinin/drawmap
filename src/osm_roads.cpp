@@ -10,8 +10,6 @@ namespace {
     enum class RoadType {MAIN, SIDE};
     
     struct RoadOptions {
-        QColor fillColor;
-        QColor borderColor;
         int width;
         RoadType type;
     };
@@ -24,43 +22,50 @@ namespace {
     int BASE_WIDTH = 8;
     
     std::map<std::string, RoadOptions> options {
-        {"motorway", {mainRoadFill, mainRoadOutline, BASE_WIDTH*3, RoadType::MAIN}},
-        {"motorway_link", {mainRoadFill, mainRoadOutline, BASE_WIDTH, RoadType::MAIN}},
-        {"trunk", {mainRoadFill, mainRoadOutline, BASE_WIDTH*3, RoadType::MAIN}},
-        {"trunk_link", {mainRoadFill, mainRoadOutline, BASE_WIDTH, RoadType::MAIN}},
-        {"primary", {mainRoadFill, mainRoadOutline, BASE_WIDTH*2, RoadType::MAIN}},
-        {"primary_link", {mainRoadFill, mainRoadOutline, BASE_WIDTH, RoadType::MAIN}},
-        {"secondary", {mainRoadFill, mainRoadOutline, BASE_WIDTH*2, RoadType::MAIN}},
-        {"secondary_link", {mainRoadFill, mainRoadOutline, BASE_WIDTH, RoadType::MAIN}},
-        {"tertiary", {sideRoadFill, sideRoadOutline, BASE_WIDTH*2, RoadType::SIDE}},
-        {"tertiary_link", {sideRoadFill, sideRoadOutline, BASE_WIDTH, RoadType::SIDE}},
-        {"unclassified", {sideRoadFill, sideRoadOutline, BASE_WIDTH, RoadType::SIDE}}//,
-        //{"residential", {sideRoadFill, sideRoadOutline, 3, RoadType::SIDE}},
-        //{"service", {sideRoadFill, sideRoadOutline, 3, RoadType::SIDE}}
+        {"motorway", {BASE_WIDTH*3, RoadType::MAIN}},
+        {"motorway_link", {BASE_WIDTH, RoadType::MAIN}},
+        {"trunk", {BASE_WIDTH*3, RoadType::MAIN}},
+        {"trunk_link", {BASE_WIDTH, RoadType::MAIN}},
+        {"primary", {BASE_WIDTH*2, RoadType::MAIN}},
+        {"primary_link", {BASE_WIDTH, RoadType::MAIN}},
+        {"secondary", {BASE_WIDTH*2, RoadType::MAIN}},
+        {"secondary_link", {BASE_WIDTH, RoadType::MAIN}},
+        {"tertiary", {BASE_WIDTH*2, RoadType::SIDE}},
+        {"tertiary_link", {BASE_WIDTH, RoadType::SIDE}},
+        {"unclassified", {BASE_WIDTH, RoadType::SIDE}}//,
+        //{"residential", {BASE_WIDTH, RoadType::SIDE}},
+        //{"service", {BASE_WIDTH, RoadType::SIDE}}
     };
 }
 
 OsmRoadsHandler::OsmRoadsHandler(const Projector& proj_, const MinMax& minmax_, int imageSize) : 
-    imageFillMain(imageSize, imageSize, QImage::Format_ARGB32),
-    imageFillSide(imageSize, imageSize, QImage::Format_ARGB32),
-    imageOutline(imageSize, imageSize, QImage::Format_ARGB32),
-    painterFillMain(&imageFillMain),
-    painterFillSide(&imageFillSide),
-    painterOutline(&imageOutline),
+    image(imageSize, imageSize, QImage::Format_ARGB32),
     proj(proj_),
     minmax(minmax_)
 {
-    imageFillMain.fill({255, 255, 255, 0});
-    imageFillSide.fill({255, 255, 255, 0});
-    imageOutline.fill({255, 255, 255, 0});
-    for (auto painter: {&painterFillMain, &painterFillSide, &painterOutline}) {
-        painter->setRenderHint(QPainter::Antialiasing, true);
-        painter->setRenderHint(QPainter::TextAntialiasing, true);
-        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-    }
-    double scaleX = imageFillMain.width() / (minmax.maxx - minmax.minx);
-    double scaleY = imageFillMain.height() / (minmax.maxy - minmax.miny);
+    image.fill({255, 255, 255, 0});
+    double scaleX = image.width() / (minmax.maxx - minmax.minx);
+    double scaleY = image.height() / (minmax.maxy - minmax.miny);
     scale = std::min(scaleX, scaleY);
+}
+
+void OsmRoadsHandler::finalize()
+{
+    sidePath -= *placesPath;
+    mainPath -= *placesPath;
+    
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    
+    painter.setPen(QPen(sideRoadOutline, 4));
+    painter.drawPath(sidePath);
+    painter.setPen(QPen(mainRoadOutline, 4));
+    painter.drawPath(mainPath);
+    
+    painter.fillPath(sidePath, sideRoadFill);
+    painter.fillPath(mainPath, mainRoadFill);
 }
 
 void OsmRoadsHandler::way(const osmium::Way& way)  {
@@ -89,30 +94,29 @@ void OsmRoadsHandler::way(const osmium::Way& way)  {
     QPainterPathStroker stroker;
     stroker.setWidth(option->second.width);
     stroker.setJoinStyle(Qt::PenJoinStyle::RoundJoin);
-    stroker.setCapStyle(Qt::PenCapStyle::FlatCap);
-    
+    stroker.setCapStyle(Qt::PenCapStyle::RoundCap);
     QPainterPath strokeOutline = stroker.createStroke(path);
     
-    stroker.setCapStyle(Qt::PenCapStyle::SquareCap);
-    QPainterPath strokeFill = stroker.createStroke(path);
-    
-    painterOutline.setPen(QPen(option->second.borderColor, 2));
-    painterOutline.drawPath(strokeOutline);
-    
-    if (option->second.type == RoadType::MAIN)
-        painterFillMain.fillPath(strokeFill, option->second.fillColor);
-    else
-        painterFillSide.fillPath(strokeFill, option->second.fillColor);
-
     static int nInside = 0; 
-    if (strokeFill.intersects(QRectF(0, 0, imageFillMain.width(), imageFillMain.height()))) {
+    if (strokeOutline.intersects(QRectF(0, 0, image.width(), image.height()))) {
         nInside++;
         if (nInside % 100 == 0) std::cout << nInside << std::endl;
-        allRoadsPath += strokeFill;
+        if (option->second.type == RoadType::MAIN)
+            mainPath += strokeOutline;
+        else
+            sidePath += strokeOutline;
+        unitedPath += strokeOutline;
     }
 }
 
+const QPainterPath& OsmRoadsHandler::getUnitedPath() const {
+    return unitedPath;
+}
+
+void OsmRoadsHandler::setPlacesPath(const QPainterPath& path) {
+    placesPath = &path;
+}
+
 QImage OsmRoadsHandler::getImage() const {
-    const_cast<QPainter&>(painterFillMain).fillPath(allRoadsPath, QColor(0, 255, 0));
-    return combine(combine(imageOutline, imageFillSide), imageFillMain);
+    return image;
 }
