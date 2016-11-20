@@ -113,7 +113,7 @@ void OsmRoadsHandler::finalize()
     
     for (const auto& ppath: paths) {
         auto path = ppath.path;
-        //path -= *placesPath;
+        path -= *placesPath;
         
         QPainterPathStroker stroker;
         stroker.setWidth(ppath.width);
@@ -128,7 +128,7 @@ void OsmRoadsHandler::finalize()
     }
     for (const auto& ppath: paths) {
         auto path = ppath.path;
-        //path -= *placesPath;
+        path -= *placesPath;
         
         QPainterPathStroker stroker;
         stroker.setWidth(ppath.width);
