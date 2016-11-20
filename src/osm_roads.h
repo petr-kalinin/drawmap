@@ -8,6 +8,10 @@
 #include <QImage>
 #include <QPainter>
 
+#include <memory>
+
+enum class RoadType {MAIN, SIDE};
+
 class OsmRoadsHandler : public BaseHandler {
 public:
     OsmRoadsHandler(const Projector& proj_, const MinMax& minmax_, int imageSize);
@@ -23,9 +27,16 @@ public:
     void setPlacesPath(const QPainterPath& path);
     
 private:
+    struct RoadPath {
+        QPainterPath path;
+        RoadType type;
+        int width;
+    };
+    
     double scale;
     QImage image;
-    QPainterPath mainPath, sidePath, unitedPath;
+    QPainterPath unitedPath;
+    std::vector<RoadPath> paths;
     const QPainterPath* placesPath;
     const Projector& proj;
     const MinMax& minmax;

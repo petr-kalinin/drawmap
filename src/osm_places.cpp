@@ -36,10 +36,6 @@ void OsmPlacesHandler::area(const osmium::Area& area)  {
         std::cerr << "Area with zero outer rings" << std::endl;
         return;
     }
-    if (area.num_rings().first == 1) {
-        //return;
-        std::cerr << "Area with >1 outer rings" << std::endl;
-    }
     for (const auto& ring: area.outer_rings()) {
         QPainterPath path;
         bool first = true;
@@ -72,12 +68,13 @@ void OsmPlacesHandler::setRoadsPath(const QPainterPath& path) {
 
 void OsmPlacesHandler::finalize()
 {
+    QPainterPath roadsPathSimplified = roadsPath->simplified();
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
     
-    QPainterPath needPath = unitedPath - *roadsPath;
+    QPainterPath needPath = unitedPath - roadsPathSimplified;
     
     painter.setPen(QPen(QColor(0,0,0), 4));
     painter.drawPath(needPath);

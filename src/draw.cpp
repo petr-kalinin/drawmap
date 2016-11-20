@@ -8,8 +8,42 @@
 #include <QImage>
 
 #include <iostream>
+#include <thread>
 
 const int IMAGE_SIZE = 1200;
+const int TILE_SOURCE_SIZE = 25000;
+
+void drawTile(QImage* result, const std::string osmFile, const Projector proj, MinMax minmax) {
+    std::cout << "tile " << minmax.minx << " " << minmax.maxx << "   " << minmax.miny << " " << minmax.maxy << std::endl;
+    SRTMtoCV srtm(proj, minmax, IMAGE_SIZE);
+    
+    cvPaint::paint(srtm.getCvHeights()).save("test-cv.png");
+    cvPaint::paint(srtm.getXGrad()).save("test-xgrad.png");
+    cvPaint::paint(srtm.getYGrad()).save("test-ygrad.png");
+    cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad()).save("test-grads.png");
+    
+    OsmRoadsHandler roads(proj, minmax, IMAGE_SIZE);
+    OsmRailHandler rail(proj, minmax, IMAGE_SIZE);
+    OsmPlacesHandler places(proj, minmax, IMAGE_SIZE);
+    
+    roads.setPlacesPath(places.getUnitedPath());
+    places.setRoadsPath(roads.getUnitedPath());
+
+    OsmDrawer osm;
+    osm.addHandler(&roads);
+    osm.addHandler(&rail);
+    osm.addHandler(&places);
+    
+    osm.dispatch(osmFile);
+    
+    auto hills = cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad());
+    
+    roads.getImage().save("roads.png");
+    
+    *result = combine(hills, combine(places.getImage(), combine(roads.getImage(), rail.getImage())));
+    //*result = combine(places.getImage(), combine(roads.getImage(), rail.getImage()));
+    //std::cout << result << " result.width=" << result->width() << std::endl;
+}
 
 int main(int argc, char* argv[]) {
     if (argc != 2) {
@@ -47,11 +81,10 @@ int main(int argc, char* argv[]) {
     minmax.miny = center.y - 100000;
     */
     
-    
     point center = proj.transform({43.739319, 56.162759});
-    minmax.minx = center.x - 25000/2;
-    minmax.maxx = center.x + 25000/2;
-    minmax.miny = center.y - 25000/2;
+    minmax.minx = center.x - TILE_SOURCE_SIZE/2;
+    minmax.maxx = center.x + TILE_SOURCE_SIZE/2;
+    minmax.miny = center.y - TILE_SOURCE_SIZE/2;
     
     
     
@@ -63,33 +96,39 @@ int main(int argc, char* argv[]) {
     */
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
+    
+    int TILES = 1;
+    int OFFSET = 0;
+    
+    QImage result(IMAGE_SIZE*TILES, IMAGE_SIZE*TILES, QImage::Format_ARGB32);
+    result.fill({255, 255, 255, 0});
+    QPainter painter(&result);
 
-    SRTMtoCV srtm(proj, minmax, IMAGE_SIZE);
+    for (int x=0; x<TILES; x++) {
+        std::vector<std::unique_ptr<std::thread>> threads;
+        std::vector<QImage> images(TILES);
+        for (int y=0; y<TILES; y++) {
+            MinMax curMinMax(minmax);
+            curMinMax.minx += (x-OFFSET)*TILE_SOURCE_SIZE;
+            curMinMax.maxx += (x-OFFSET)*TILE_SOURCE_SIZE;
+            curMinMax.miny += (OFFSET-y)*TILE_SOURCE_SIZE;
+            curMinMax.maxy += (OFFSET-y)*TILE_SOURCE_SIZE;
+            threads.emplace_back(new std::thread(drawTile, &(images[y]), argv[1], proj, curMinMax));
+        }
+        for (int y=0; y<TILES; y++) {
+            std::cout << "y=" << y << std::endl;
+            threads[y]->join();
+            std::cout << "y=" << y << std::endl;
+            std::ostringstream str;
+            str << "img" << x << y;
+            images[y].save(std::string(str.str() + ".png").c_str());
+            std::cout << &(images[y]) << "y=" << y << " " << str.str() << " " << images[y].width() << std::endl;
+            painter.drawImage(x*IMAGE_SIZE, y*IMAGE_SIZE, images[y]);
+        }
+    }
     
-    cvPaint::paint(srtm.getCvHeights()).save("test-cv.png");
-    cvPaint::paint(srtm.getXGrad()).save("test-xgrad.png");
-    cvPaint::paint(srtm.getYGrad()).save("test-ygrad.png");
-    cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad()).save("test-grads.png");
-    
-    OsmRoadsHandler roads(proj, minmax, IMAGE_SIZE);
-    OsmRailHandler rail(proj, minmax, IMAGE_SIZE);
-    OsmPlacesHandler places(proj, minmax, IMAGE_SIZE);
-    
-    roads.setPlacesPath(places.getUnitedPath());
-    places.setRoadsPath(roads.getUnitedPath());
+    result.save("final.png");
 
-    OsmDrawer osm;
-    osm.addHandler(&roads);
-    osm.addHandler(&rail);
-    osm.addHandler(&places);
-    
-    osm.dispatch(argv[1]);
-    
-    auto hills = cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad());
-    
-    roads.getImage().save("roads.png");
-    
-    combine(hills, combine(places.getImage(), combine(roads.getImage(), rail.getImage()))).save("final.png");
     
     return 0;
 }

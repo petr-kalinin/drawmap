@@ -5,10 +5,9 @@
 #include <QPainterPathStroker>
 #include <Qt>
 #include <map>
+#include <unordered_map>
 
 namespace {
-    enum class RoadType {MAIN, SIDE};
-    
     struct RoadOptions {
         int width;
         RoadType type;
@@ -18,6 +17,9 @@ namespace {
     QColor mainRoadOutline{153, 69, 13};
     QColor sideRoadFill{255, 255, 255};
     QColor sideRoadOutline{128, 128, 128};
+
+    std::map<RoadType, QColor> fillColor{{RoadType::MAIN, mainRoadFill}, {RoadType::SIDE, sideRoadFill}};
+    std::map<RoadType, QColor> outlineColor{{RoadType::MAIN, mainRoadOutline}, {RoadType::SIDE, sideRoadOutline}};
     
     int BASE_WIDTH = 8;
     
@@ -49,25 +51,6 @@ OsmRoadsHandler::OsmRoadsHandler(const Projector& proj_, const MinMax& minmax_, 
     scale = std::min(scaleX, scaleY);
 }
 
-void OsmRoadsHandler::finalize()
-{
-    sidePath -= *placesPath;
-    mainPath -= *placesPath;
-    
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setRenderHint(QPainter::TextAntialiasing, true);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    
-    painter.setPen(QPen(sideRoadOutline, 4));
-    painter.drawPath(sidePath);
-    painter.setPen(QPen(mainRoadOutline, 4));
-    painter.drawPath(mainPath);
-    
-    painter.fillPath(sidePath, sideRoadFill);
-    painter.fillPath(mainPath, mainRoadFill);
-}
-
 void OsmRoadsHandler::way(const osmium::Way& way)  {
     if (!way.get_value_by_key("highway"))
         return;
@@ -75,7 +58,7 @@ void OsmRoadsHandler::way(const osmium::Way& way)  {
     auto option = options.find(type);
     if (option == options.end())
         return;
-    QPainterPath path;
+    QPainterPath path0;
     bool first = true;
     for (const auto& node: way.nodes()) {
         if (!node.location())
@@ -84,29 +67,87 @@ void OsmRoadsHandler::way(const osmium::Way& way)  {
         double x = scale * (p.x-minmax.minx);
         double y = scale * (minmax.maxy-p.y);
         if (first) {
-            path.moveTo(x, y);
+            path0.moveTo(x, y);
             first = false;
         } else {
-            path.lineTo(x, y);
+            path0.lineTo(x, y);
         }
     }
-    
     QPainterPathStroker stroker;
+    stroker.setWidth(0.1);
+    stroker.setJoinStyle(Qt::PenJoinStyle::RoundJoin);
+    stroker.setCapStyle(Qt::PenCapStyle::RoundCap);
+
+    QPainterPath path = stroker.createStroke(path0);
+
     stroker.setWidth(option->second.width);
     stroker.setJoinStyle(Qt::PenJoinStyle::RoundJoin);
     stroker.setCapStyle(Qt::PenCapStyle::RoundCap);
     QPainterPath strokeOutline = stroker.createStroke(path);
     
+    QPainterPath strokeOutline0 = stroker.createStroke(path0);
+    
     static int nInside = 0; 
     if (strokeOutline.intersects(QRectF(0, 0, image.width(), image.height()))) {
+        strokeOutline.setFillRule(Qt::WindingFill);
+        strokeOutline = strokeOutline.simplified();
         nInside++;
         if (nInside % 100 == 0) std::cout << nInside << std::endl;
-        if (option->second.type == RoadType::MAIN)
-            mainPath += strokeOutline;
-        else
-            sidePath += strokeOutline;
-        unitedPath += strokeOutline;
+        unitedPath += strokeOutline0;
+        paths.push_back({path, option->second.type, option->second.width});
     }
+}
+
+void OsmRoadsHandler::finalize()
+{
+    sort(paths.begin(), paths.end(), 
+         [](const RoadPath& a, const RoadPath& b) { return a.type>b.type; } );
+    
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    
+    //painter.setPen(QPen(QColor(0, 255, 0, 128), 4));
+    //painter.drawPath(unitedPath);
+    
+    for (const auto& ppath: paths) {
+        auto path = ppath.path;
+        //path -= *placesPath;
+        
+        QPainterPathStroker stroker;
+        stroker.setWidth(ppath.width);
+        stroker.setJoinStyle(Qt::PenJoinStyle::RoundJoin);
+        stroker.setCapStyle(Qt::PenCapStyle::RoundCap);
+
+        QPainterPath outline = stroker.createStroke(path);
+        painter.setPen(QPen(outlineColor[ppath.type], 4));
+        //painter.setPen(QPen(QColor(0, 255, 0, 128), 1));
+        painter.drawPath(outline);
+        //painter.fillPath(outline, QColor(255, 0, 0, 128));
+    }
+    for (const auto& ppath: paths) {
+        auto path = ppath.path;
+        //path -= *placesPath;
+        
+        QPainterPathStroker stroker;
+        stroker.setWidth(ppath.width);
+        stroker.setJoinStyle(Qt::PenJoinStyle::RoundJoin);
+        stroker.setCapStyle(Qt::PenCapStyle::RoundCap);
+        
+        QPainterPath outline = stroker.createStroke(path);
+        
+        painter.fillPath(outline, fillColor[ppath.type]);
+        //painter.fillPath(outline, QColor(255, 0, 0, 128));
+    }
+    
+    /*
+    for (const auto& ppath: paths) {
+        auto path = ppath.path;
+        painter.setPen(QPen(QColor(0, 255, 0, 128), 2));
+        painter.drawPath(path);
+    }
+    */
 }
 
 const QPainterPath& OsmRoadsHandler::getUnitedPath() const {
