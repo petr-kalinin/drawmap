@@ -35,7 +35,7 @@ private:
     
     double scale;
     QImage image;
-    QPainterPath unitedPath;
+    QPainterPath unitedPath, mainPath, sidePath;
     std::vector<RoadPath> paths;
     const QPainterPath* placesPath;
     const Projector& proj;

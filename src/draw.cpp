@@ -39,8 +39,9 @@ void drawTile(QImage* result, const std::string osmFile, const Projector proj, M
     auto hills = cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad());
     
     roads.getImage().save("roads.png");
+    places.getImage().save("places.png");
     
-    *result = combine(hills, combine(places.getImage(), combine(roads.getImage(), rail.getImage())));
+    *result = combine(hills, combine(combine(roads.getImage(), places.getImage()), rail.getImage()));
     //*result = combine(places.getImage(), combine(roads.getImage(), rail.getImage()));
     //std::cout << result << " result.width=" << result->width() << std::endl;
 }
@@ -98,7 +99,7 @@ int main(int argc, char* argv[]) {
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
     int TILES = 1;
-    int OFFSET = 0;
+    int OFFSET = TILES/2;
     
     QImage result(IMAGE_SIZE*TILES, IMAGE_SIZE*TILES, QImage::Format_ARGB32);
     result.fill({255, 255, 255, 0});

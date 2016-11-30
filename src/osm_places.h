@@ -24,10 +24,12 @@ public:
     
 private:
     bool needArea(const osmium::Area &area) const;
+    QPolygonF simplifyPolygon(const QPolygonF& polygon) const;
     
     double scale;
     QImage image;
     QPainterPath unitedPath;
+    std::vector<QPainterPath> paths;
     const QPainterPath* roadsPath;
     const Projector& proj;
     const MinMax& minmax;

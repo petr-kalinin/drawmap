@@ -4,10 +4,13 @@
 #include <osmium/osm/area.hpp>
 #include <QPainterPathStroker>
 #include <Qt>
+
 #include <set>
+#include <cmath>
 
 namespace {
     std::set<std::string> PLACES_TO_INCLUDE{"city", "town", "village", "hamlet", "allotments"};
+    int VERTICAL_SHIFT = 15;
 }
 
 OsmPlacesHandler::OsmPlacesHandler(const Projector& proj_, const MinMax& minmax_, int imageSize) : 
@@ -54,6 +57,7 @@ void OsmPlacesHandler::area(const osmium::Area& area)  {
         }
         if (path.intersects(QRectF(0, 0, image.width(), image.height()))) {
             unitedPath += path;
+            paths.push_back(path);
         }
     }
 }
@@ -66,6 +70,42 @@ void OsmPlacesHandler::setRoadsPath(const QPainterPath& path) {
     roadsPath = &path;
 }
 
+QPolygonF OsmPlacesHandler::simplifyPolygon(const QPolygonF& polygon) const {
+    static const int DIST_THRESHOLD = 4;
+    QPolygonF newPolygon;
+    QPointF lastPoint(-1e10, -1e10);
+    for (const auto& point: polygon) {
+        double dist = std::hypot(point.x() - lastPoint.x(), point.y() - lastPoint.y());
+        if (dist > DIST_THRESHOLD) {
+            newPolygon << point;
+            lastPoint = point;
+        }
+    }
+    return newPolygon;
+}
+
+namespace {
+    
+typedef std::pair<QPainterPath, float> SidePath;
+    
+void addSidePaths(const QPolygonF& polygon, std::vector<SidePath>& paths) {
+    QPointF lastPoint;
+    for (const auto& point: polygon) {
+        if (!lastPoint.isNull()) {
+            QPainterPath path;
+            path.moveTo(lastPoint);
+            path.lineTo(lastPoint - QPointF(0, VERTICAL_SHIFT));
+            path.lineTo(point - QPointF(0, VERTICAL_SHIFT));
+            path.lineTo(point);
+            path.lineTo(lastPoint);
+            paths.emplace_back(path, (lastPoint.y() + point.y())/2.0);
+        }
+        lastPoint = point;
+    }
+}
+
+}
+
 void OsmPlacesHandler::finalize()
 {
     QPainterPath roadsPathSimplified = roadsPath->simplified();
@@ -73,12 +113,31 @@ void OsmPlacesHandler::finalize()
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+    //painter.fillPath(unitedPath, QColor(255, 255, 255));
     
-    QPainterPath needPath = unitedPath - roadsPathSimplified;
-    
-    painter.setPen(QPen(QColor(0,0,0), 4));
-    painter.drawPath(needPath);
-    painter.fillPath(needPath, QColor(128, 128, 128));
+    painter.setPen(QPen(QColor(0,0,0), 2));
+    std::vector<SidePath> topPaths;
+    std::vector<SidePath> sidePaths;
+    for (auto& path: paths) {
+        path -= roadsPathSimplified;
+        path = path.simplified();
+        auto polygons = path.toSubpathPolygons(QTransform());
+        for (auto polygon: polygons) {
+            addSidePaths(polygon, sidePaths);
+            QPainterPath newPath;
+            newPath.addPolygon(polygon);
+            newPath.translate(0, -VERTICAL_SHIFT);
+            topPaths.emplace_back(newPath, -1);
+        }
+    }
+    std::sort(sidePaths.begin(), sidePaths.end(), [](const SidePath& a, const SidePath& b) { return a.second < b.second; });
+    for (const auto paths: {&sidePaths, &topPaths}) {
+        for (const auto& path: *paths) {
+            painter.fillPath(path.first, QColor(128, 128, 128));
+            painter.drawPath(path.first);
+        }
+    }
 }
 
 QImage OsmPlacesHandler::getImage() const {
