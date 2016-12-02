@@ -83,9 +83,9 @@ int main(int argc, char* argv[]) {
     */
     
     point center = proj.transform({43.739319, 56.162759});
-    minmax.minx = center.x - TILE_SOURCE_SIZE/2 + TILE_SOURCE_SIZE/2/2;
-    minmax.maxx = center.x + TILE_SOURCE_SIZE/2 + TILE_SOURCE_SIZE/2/2;
-    minmax.miny = center.y - TILE_SOURCE_SIZE/2/2/2 + TILE_SOURCE_SIZE;
+    minmax.minx = center.x - TILE_SOURCE_SIZE/2;
+    minmax.maxx = center.x + TILE_SOURCE_SIZE/2;
+    minmax.miny = center.y - TILE_SOURCE_SIZE/2;
     
     
     
