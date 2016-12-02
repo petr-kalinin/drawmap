@@ -114,7 +114,8 @@ void OsmPlacesHandler::finalize()
     painter.setRenderHint(QPainter::TextAntialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-    //painter.fillPath(unitedPath, QColor(255, 255, 255));
+    //painter.fillPath(unitedPath - roadsPathSimplified, QColor(255, 0, 0));
+    //painter.fillPath(roadsPathSimplified, QColor(255, 0, 0));
     
     painter.setPen(QPen(QColor(0,0,0), 2));
     std::vector<SidePath> topPaths;
@@ -125,11 +126,10 @@ void OsmPlacesHandler::finalize()
         auto polygons = path.toSubpathPolygons(QTransform());
         for (auto polygon: polygons) {
             addSidePaths(polygon, sidePaths);
-            QPainterPath newPath;
-            newPath.addPolygon(polygon);
-            newPath.translate(0, -VERTICAL_SHIFT);
-            topPaths.emplace_back(newPath, -1);
         }
+        QPainterPath newPath = path;
+        newPath.translate(0, -VERTICAL_SHIFT);
+        topPaths.emplace_back(newPath, -1);
     }
     std::sort(sidePaths.begin(), sidePaths.end(), [](const SidePath& a, const SidePath& b) { return a.second < b.second; });
     for (const auto paths: {&sidePaths, &topPaths}) {
