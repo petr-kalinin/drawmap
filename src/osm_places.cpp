@@ -70,6 +70,10 @@ void OsmPlacesHandler::setRoadsPath(const QPainterPath& path) {
     roadsPath = &path;
 }
 
+void OsmPlacesHandler::setRailPath(const QPainterPath& path) {
+    railPath = &path;
+}
+
 QPolygonF OsmPlacesHandler::simplifyPolygon(const QPolygonF& polygon) const {
     static const int DIST_THRESHOLD = 4;
     QPolygonF newPolygon;
@@ -108,7 +112,7 @@ void addSidePaths(const QPolygonF& polygon, std::vector<SidePath>& paths) {
 
 void OsmPlacesHandler::finalize()
 {
-    QPainterPath roadsPathSimplified = roadsPath->simplified();
+    QPainterPath roadsPathSimplified = (*roadsPath+*railPath).simplified();
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);

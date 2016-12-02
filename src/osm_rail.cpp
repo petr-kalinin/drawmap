@@ -69,6 +69,12 @@ void OsmRailHandler::way(const osmium::Way& way)  {
     
     painterFill.fillPath(strokeFillBlack, QColor(0, 0, 0));
     painterFill.fillPath(strokeFillWhite, QColor(255, 255, 255));
+    
+    unitedPath += strokeOutline;
+}
+
+const QPainterPath& OsmRailHandler::getUnitedPath() const {
+    return unitedPath;
 }
 
 QImage OsmRailHandler::getImage() const {

@@ -16,10 +16,13 @@ public:
     
     QImage getImage() const;
     
+    const QPainterPath& getUnitedPath() const;
+    
 private:
     double scale;
     QImage imageFill, imageOutline;
     QPainter painterFill, painterOutline;
+    QPainterPath unitedPath;
     const Projector& proj;
     const MinMax& minmax;
 }; 
