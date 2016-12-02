@@ -117,7 +117,7 @@ void OsmPlacesHandler::finalize()
     //painter.fillPath(unitedPath - roadsPathSimplified, QColor(255, 0, 0));
     //painter.fillPath(roadsPathSimplified, QColor(255, 0, 0));
     
-    painter.setPen(QPen(QColor(0,0,0), 2));
+    painter.setPen(QPen(QColor(99, 27, 27), 2));
     std::vector<SidePath> topPaths;
     std::vector<SidePath> sidePaths;
     for (auto& path: paths) {
@@ -134,7 +134,7 @@ void OsmPlacesHandler::finalize()
     std::sort(sidePaths.begin(), sidePaths.end(), [](const SidePath& a, const SidePath& b) { return a.second < b.second; });
     for (const auto paths: {&sidePaths, &topPaths}) {
         for (const auto& path: *paths) {
-            painter.fillPath(path.first, QColor(128, 128, 128));
+            painter.fillPath(path.first, QColor(145, 44, 44));
             painter.drawPath(path.first);
         }
     }
