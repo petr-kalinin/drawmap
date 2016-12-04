@@ -102,7 +102,7 @@ int main(int argc, char* argv[]) {
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
-    int TILES = 10;
+    int TILES = 12;
     int OFFSET = TILES/2;
     
     QImage result(IMAGE_SIZE*TILES, IMAGE_SIZE*TILES, QImage::Format_ARGB32);

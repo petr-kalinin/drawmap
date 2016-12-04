@@ -6,10 +6,14 @@
 #include <Qt>
 
 #include <set>
+#include <map>
 #include <cmath>
 
 namespace {
-    std::set<std::string> PLACES_TO_INCLUDE{"city", "town", "village", "hamlet", "allotments"};
+    std::map<std::string, std::set<std::string>> TAGS_TO_INCLUDE{
+        {"place", {"village", "hamlet", "allotments"}},
+        {"landuse", {"commercial", "garages", "industrial", "residential", "retail"}}
+    };
     int VERTICAL_SHIFT = 15;
 }
 
@@ -25,12 +29,14 @@ OsmPlacesHandler::OsmPlacesHandler(const Projector& proj_, const MinMax& minmax_
 }
 
 bool OsmPlacesHandler::needArea(const osmium::Area& area) const {
-    if ((area.get_value_by_key("landuse")) && (area.get_value_by_key("landuse") == std::string("allotments")))
-        return true;
-    if (!area.get_value_by_key("place"))
-        return false;
-    std::string type = area.get_value_by_key("place");
-    return (PLACES_TO_INCLUDE.count(type) != 0);
+    for (const auto& tag: TAGS_TO_INCLUDE) {
+        if (area.get_value_by_key(tag.first.c_str())) {
+            std::string type = area.get_value_by_key(tag.first.c_str());
+            if (tag.second.count(type) != 0)
+                return true;
+        }
+    }
+    return false;
 }
 
 void OsmPlacesHandler::area(const osmium::Area& area)  {
