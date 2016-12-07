@@ -8,4 +8,4 @@ QMAKE_CXXFLAGS += -std=c++14 -g
 
 # Input
 SOURCES += src/common.cpp src/draw.cpp src/osm_main.cpp src/osm_roads.cpp src/srtm.cpp src/osm_rail.cpp \
-    src/osm_places.cpp
+    src/osm_places.cpp src/osm_rivers.cpp

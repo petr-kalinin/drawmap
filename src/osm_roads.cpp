@@ -117,9 +117,9 @@ void OsmRoadsHandler::finalize()
         stroker.setJoinStyle(Qt::PenJoinStyle::RoundJoin);
         stroker.setCapStyle(Qt::PenCapStyle::RoundCap);
 
-        QPainterPath outlineSide = stroker.createStroke(sidePath) - *placesPath;
+        QPainterPath outlineSide = stroker.createStroke(sidePath);// - *placesPath;
         painter.fillPath(outlineSide, outlineColor[RoadType::SIDE]);
-        QPainterPath outlineMain = stroker.createStroke(mainPath) - *placesPath;
+        QPainterPath outlineMain = stroker.createStroke(mainPath);// - *placesPath;
         painter.fillPath(outlineMain, outlineColor[RoadType::MAIN]);
     }
     
@@ -127,7 +127,7 @@ void OsmRoadsHandler::finalize()
     
     for (const auto& ppath: paths) {
         auto path = ppath.path;
-        path -= *placesPath;
+        //path -= *placesPath;
         
         QPainterPathStroker stroker;
         stroker.setWidth(ppath.width);
