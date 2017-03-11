@@ -105,9 +105,9 @@ void SRTMtoCV::calc() {
             }
         }
     }
-    cv::Mat sourceSmoothed;
-    cv::bilateralFilter(source, sourceSmoothed, -1, 10, 5);
-    source = sourceSmoothed;
+    //cv::Mat sourceSmoothed;
+    //cv::bilateralFilter(source, sourceSmoothed, -1, 10, 5);
+    //source = sourceSmoothed;
     //writeMatrix(source, "source");
     
     //paint(source).save("source.png");

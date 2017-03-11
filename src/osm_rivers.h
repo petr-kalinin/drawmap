@@ -22,9 +22,11 @@ public:
 private:
     template<class Object>
     bool needObject(const Object &object) const;
+    
+    QImage paintAreas() const;
 
-    std::vector<QPainterPath> paths;
-    std::vector<QPainterPath> areas;
+    QPainterPath paths;
+    QPainterPath areas;
     double scale;
     QImage image;
     const Projector& proj;
