@@ -4,6 +4,7 @@
 #include "osm_rail.h"
 #include "osm_places.h"
 #include "osm_rivers.h"
+#include "osm_forests.h"
 #include "osm_main.h"
 
 #include <QImage>
@@ -27,6 +28,7 @@ void drawTile(QImage* result, const std::string osmFile, const Projector proj, M
     OsmRailHandler rail(proj, minmax, IMAGE_SIZE);
     OsmPlacesHandler places(proj, minmax, IMAGE_SIZE);
     OsmRiversHandler rivers(proj, minmax, IMAGE_SIZE);
+    OsmForestsHandler forests(proj, minmax, IMAGE_SIZE);
     
     roads.setPlacesPath(places.getUnitedPath());
     places.setRoadsPath(roads.getUnitedPath());
@@ -48,6 +50,7 @@ void drawTile(QImage* result, const std::string osmFile, const Projector proj, M
     *result = hills;
     //*result = rivers.getImage();
     *result = combine(*result, rivers.getImage());
+    *result = combine(*result, forests.getImage());
     *result = combine(*result, roads.getImage());
     *result = combine(*result, rail.getImage());
     *result = combine(*result, places.getImage());
@@ -108,7 +111,7 @@ int main(int argc, char* argv[]) {
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
-    int TILES = 2;
+    int TILES = 1;
     int OFFSET = TILES/2;
     
     QImage result(IMAGE_SIZE*TILES, IMAGE_SIZE*TILES, QImage::Format_ARGB32);
