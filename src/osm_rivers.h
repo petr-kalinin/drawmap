@@ -23,8 +23,6 @@ private:
     template<class Object>
     bool needObject(const Object &object) const;
     
-    QImage paintAreas() const;
-
     QPainterPath paths;
     QPainterPath areas;
     double scale;
