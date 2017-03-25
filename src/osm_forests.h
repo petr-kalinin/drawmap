@@ -18,6 +18,8 @@ public:
     
     QImage getImage() const;
     
+    const QPainterPath& getAreas() const;
+    
 private:
     template<class Object>
     bool needObject(const Object &object) const;

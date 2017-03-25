@@ -22,6 +22,7 @@ public:
     
     void setRoadsPath(const QPainterPath& path);
     void setRailPath(const QPainterPath& path);
+    void setForestAreas(const QPainterPath& path);
     
 private:
     bool needArea(const osmium::Area &area) const;
@@ -33,6 +34,7 @@ private:
     std::vector<QPainterPath> paths;
     const QPainterPath* roadsPath;
     const QPainterPath* railPath;
+    const QPainterPath* forestAreas;
     const Projector& proj;
     const MinMax& minmax;
 }; 

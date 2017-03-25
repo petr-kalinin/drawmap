@@ -18,8 +18,9 @@
 namespace {
     std::map<std::string, std::set<std::string>> TAGS_TO_INCLUDE{
         {"natural", {"wood", "scrub", "canal"}},
-        {"landuse", {"forest", "cemetery", "orchard", "vineyard"}},
+        {"landuse", {"forest", "cemetery", "orchard", "vineyard", "allotments"}},
         {"landcover", {"trees"}},
+        {"leisure", {"park"}}
     };
     
     const QColor BASE_COLOR(0, 128, 0);
@@ -84,4 +85,8 @@ void OsmForestsHandler::finalize()
 
 QImage OsmForestsHandler::getImage() const {
     return image;
+}
+
+const QPainterPath& OsmForestsHandler::getAreas() const {
+    return areas;
 }

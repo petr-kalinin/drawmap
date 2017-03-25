@@ -29,6 +29,8 @@ OsmPlacesHandler::OsmPlacesHandler(const Projector& proj_, const MinMax& minmax_
 }
 
 bool OsmPlacesHandler::needArea(const osmium::Area& area) const {
+    if (area.get_value_by_key("name") && area.get_value_by_key("name") == std::string("Зеленый город"))
+        return false;
     for (const auto& tag: TAGS_TO_INCLUDE) {
         if (area.get_value_by_key(tag.first.c_str())) {
             std::string type = area.get_value_by_key(tag.first.c_str());
@@ -80,6 +82,10 @@ void OsmPlacesHandler::setRailPath(const QPainterPath& path) {
     railPath = &path;
 }
 
+void OsmPlacesHandler::setForestAreas(const QPainterPath& path) {
+    forestAreas = &path;
+}
+
 QPolygonF OsmPlacesHandler::simplifyPolygon(const QPolygonF& polygon) const {
     static const int DIST_THRESHOLD = 4;
     QPolygonF newPolygon;
@@ -118,7 +124,7 @@ void addSidePaths(const QPolygonF& polygon, std::vector<SidePath>& paths) {
 
 void OsmPlacesHandler::finalize()
 {
-    QPainterPath roadsPathSimplified = (*roadsPath+*railPath).simplified();
+    QPainterPath roadsPathSimplified = (*roadsPath+*railPath+*forestAreas).simplified();
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
