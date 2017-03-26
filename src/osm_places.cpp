@@ -12,7 +12,8 @@
 namespace {
     std::map<std::string, std::set<std::string>> TAGS_TO_INCLUDE{
         {"place", {"village", "hamlet", "allotments"}},
-        {"landuse", {"commercial", "garages", "industrial", "residential", "retail"}}
+        {"landuse", {"commercial", "garages", "industrial", "residential", "retail"}},
+        {"historic", {"castle"}}
     };
     int VERTICAL_SHIFT = 15;
 }

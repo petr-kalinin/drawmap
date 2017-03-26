@@ -46,17 +46,16 @@ void drawTile(QImage* result, const std::string osmFile, const Projector proj, M
     
     auto hills = cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad());
     
-    roads.getImage().save("roads.png");
-    places.getImage().save("places.png");
+    //roads.getImage().save("roads.png");
+    //places.getImage().save("places.png");
     
     *result = hills;
-    //*result = rivers.getImage();
-    *result = combine(*result, rivers.getImage());
+    // *result = rivers.getImage();
     *result = combine(*result, forests.getImage());
+    *result = combine(*result, rivers.getImage());
     *result = combine(*result, roads.getImage());
     *result = combine(*result, rail.getImage());
     *result = combine(*result, places.getImage());
-    //*result = combine(places.getImage(), combine(roads.getImage(), rail.getImage()));
     //std::cout << result << " result.width=" << result->width() << std::endl;
 }
 
@@ -113,7 +112,7 @@ int main(int argc, char* argv[]) {
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
-    int TILES = 10;
+    int TILES = 1;
     int OFFSET = TILES/2;
     
     QImage result(IMAGE_SIZE*TILES, IMAGE_SIZE*TILES, QImage::Format_ARGB32);
@@ -130,6 +129,7 @@ int main(int argc, char* argv[]) {
             curMinMax.miny += (OFFSET-y)*TILE_SOURCE_SIZE;
             curMinMax.maxy += (OFFSET-y)*TILE_SOURCE_SIZE;
             threads.emplace_back(new std::thread(drawTile, &(images[y]), argv[1], proj, curMinMax));
+            //drawTile(&(images[y]), argv[1], proj, curMinMax);
         }
         for (int y=0; y<TILES; y++) {
             std::cout << "y=" << y << std::endl;
