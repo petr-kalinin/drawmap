@@ -7,9 +7,6 @@
 #include <QPainterPathStroker>
 #include <Qt>
 
-#include "opencv2/highgui/highgui.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
-
 #include <set>
 #include <map>
 #include <cmath>
@@ -84,7 +81,7 @@ namespace {
         
     QImage paintGrads(const cv::Mat& xGrad, const cv::Mat& yGrad) {
         QColor dark{0, 64, 0};
-        QColor light{128, 255, 64};
+        QColor light{64, 255, 32};
         QImage image(xGrad.cols, xGrad.rows, QImage::Format_ARGB32);
         QPainter painter(&image);
         double corr = 100;
@@ -92,13 +89,13 @@ namespace {
             for (int y=0; y<image.height(); y++) {
                 float xg = xGrad.at<float>(y, x) / corr;
                 float yg = yGrad.at<float>(y, x) / corr;
-                float f1 = (1*xg) / sqrt(1 + 0.3*0.3) / sqrt(xg*xg + yg*yg + 1);
-                float f2 = (2*xg + 1*yg + 1)/sqrt(2*2 + 1*1 + 1*1) / sqrt(xg*xg + yg*yg + 1);
+                float f1 = (-1*yg) / sqrt(1 + 0.3*0.3) / sqrt(xg*xg + yg*yg + 1);
+                float f2 = (2*yg - 1*xg - 0.5)/sqrt(2*2 + 1*1 + 0.5*0.5) / sqrt(xg*xg + yg*yg + 1);
                 f1 = (1 + f1) / 2;
-                f2= (1 + f2) / 2;
-                int r = (dark.red()*f1 + light.red()*f2) / 2;
-                int g = (dark.green()*f1 + light.green()*f2) / 2;
-                int b = (dark.blue()*f1 + light.blue()*f2) / 2;
+                f2 = (1 + f2) / 2;
+                int r = (dark.red()*f1 + light.red()*f2) / (f1+f2);
+                int g = (dark.green()*f1 + light.green()*f2) / (f1+f2);
+                int b = (dark.blue()*f1 + light.blue()*f2) / (f1+f2);
                 clip(r);
                 clip(g);
                 clip(b);
@@ -152,6 +149,8 @@ void OsmForestsHandler::finalize()
             }
         }
         
+    auto totalHeights = source + heights;
+        
     //cvPaint::paint(source).save("source0.png");
 
     //cv::Mat sourceSmoothed;
@@ -161,9 +160,9 @@ void OsmForestsHandler::finalize()
     //cvPaint::paint(source).save("source1.png");
     
     cv::Mat sourceXgrad;
-    Sobel(source, sourceXgrad, -1, 1, 0, 5);
+    Sobel(totalHeights, sourceXgrad, -1, 1, 0, 5);
     cv::Mat sourceYgrad;
-    Sobel(source, sourceYgrad, -1, 0, 1, 5);
+    Sobel(totalHeights, sourceYgrad, -1, 0, 1, 5);
     
     //cvPaint::paint(sourceXgrad).save("sourceX.png");
     //cvPaint::paint(sourceYgrad).save("sourceY.png");
@@ -192,4 +191,8 @@ QImage OsmForestsHandler::getImage() const {
 
 const QPainterPath& OsmForestsHandler::getAreas() const {
     return areas;
+}
+
+void OsmForestsHandler::setHeights(cv::Mat mat) {
+    heights = mat;
 }

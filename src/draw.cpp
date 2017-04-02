@@ -30,7 +30,10 @@ void drawTile(QImage* result, const std::string osmFile, const Projector proj, M
     OsmRiversHandler rivers(proj, minmax, IMAGE_SIZE);
     OsmForestsHandler forests(proj, minmax, IMAGE_SIZE);
     
+    forests.setHeights(srtm.getCvHeights());
+    
     roads.setPlacesPath(places.getUnitedPath());
+    
     places.setRoadsPath(roads.getUnitedPath());
     places.setRailPath(rail.getUnitedPath());
     places.setForestAreas(forests.getAreas());
@@ -112,7 +115,7 @@ int main(int argc, char* argv[]) {
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
-    int TILES = 1;
+    int TILES = 14;
     int OFFSET = TILES/2;
     
     QImage result(IMAGE_SIZE*TILES, IMAGE_SIZE*TILES, QImage::Format_ARGB32);

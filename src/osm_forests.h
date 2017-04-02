@@ -5,6 +5,9 @@
 
 #include <osmium/handler.hpp>
 
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+
 #include <QImage>
 #include <QPainter>
 
@@ -20,6 +23,8 @@ public:
     
     const QPainterPath& getAreas() const;
     
+    void setHeights(cv::Mat mat);
+    
 private:
     template<class Object>
     bool needObject(const Object &object) const;
@@ -29,5 +34,6 @@ private:
     QImage image;
     const Projector& proj;
     const MinMax& minmax;
+    cv::Mat heights;
 }; 
 
