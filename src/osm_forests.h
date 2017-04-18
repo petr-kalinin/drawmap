@@ -13,7 +13,7 @@
 
 class OsmForestsHandler : public BaseHandler {
 public:
-    OsmForestsHandler(const Projector& proj_, const MinMax& minmax_, int imageSize);
+    OsmForestsHandler(const Projector& proj_, const MinMax& minmax_, int imageSize, int xTile_, int yTile);
     
     virtual void area(const osmium::Area &area);
     
@@ -35,5 +35,6 @@ private:
     const Projector& proj;
     const MinMax& minmax;
     cv::Mat heights;
+    int xTile, yTile;
 }; 
 

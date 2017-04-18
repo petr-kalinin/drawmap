@@ -24,12 +24,15 @@ namespace {
     };
     
     const QColor BASE_COLOR(0, 128, 0);
+    const int MARGIN = 100;
 }
 
-OsmForestsHandler::OsmForestsHandler(const Projector& proj_, const MinMax& minmax_, int imageSize) : 
+OsmForestsHandler::OsmForestsHandler(const Projector& proj_, const MinMax& minmax_, int imageSize, int xTile_, int yTile_) : 
     image(imageSize, imageSize, QImage::Format_ARGB32),
     proj(proj_),
-    minmax(minmax_)
+    minmax(minmax_),
+    xTile(xTile_),
+    yTile(yTile_)
 {
     image.fill({255, 255, 255, 0});
     double scaleX = image.width() / (minmax.maxx - minmax.minx);
@@ -58,8 +61,8 @@ void OsmForestsHandler::area(const osmium::Area& area)  {
             if (!node.location())
                 continue;
             point p = proj.transform({node.lon(), node.lat()});
-            double x = scale * (p.x-minmax.minx);
-            double y = scale * (minmax.maxy-p.y);
+            double x = scale * (p.x-minmax.minx) + MARGIN;
+            double y = scale * (minmax.maxy-p.y) + MARGIN;
             if (first) {
                 path.moveTo(x, y);
                 first = false;
@@ -67,7 +70,7 @@ void OsmForestsHandler::area(const osmium::Area& area)  {
                 path.lineTo(x, y);
             }
         }
-        if (path.intersects(QRectF(0, 0, image.width(), image.height()))) {
+        if (path.intersects(QRectF(0, 0, image.width() + 2*MARGIN, image.height() + 2*MARGIN))) {
             areas += path;
         }
     }
@@ -109,24 +112,32 @@ namespace {
 
 void OsmForestsHandler::finalize()
 {
-    QImage imageBase(image.width(), image.height(), QImage::Format_ARGB32);
+    QImage imageBase(image.width() + 2*MARGIN, image.height() + 2*MARGIN, QImage::Format_ARGB32);
     imageBase.fill({255, 255, 255, 0});
     QPainter painterBase(&imageBase);
     painterBase.fillPath(areas, BASE_COLOR);
     
-    std::random_device r;
-    std::default_random_engine e1(r());
-    std::uniform_real_distribution<float> noise(0, 1.5);
-    std::uniform_real_distribution<float> placer(0, 1);
-    std::normal_distribution<double> height(10, 2);
-    std::normal_distribution<double> radius(10, 1);
+    //std::random_device r;
+    //std::default_random_engine e1(r());
     static const double PLACER_THRESHOLD = 1e-1;
     static const double BASE_HEIGHT = 0;
     
     
-    cv::Mat source(image.height(), image.width(), CV_32FC1, 0.0);
-    for (int x=0; x<image.width(); x++)
-        for (int y=0; y<image.height(); y++) {
+    cv::Mat source(imageBase.height(), imageBase.width(), CV_32FC1, 0.0);
+    std::cout << "tile " << xTile << " " << yTile << std::endl;
+    for (int y=0; y<imageBase.height(); y++) {
+        for (int x=0; x<imageBase.width(); x++) {
+            int seed = xTile * image.width() + x - MARGIN + 10000 * (yTile * image.height() + (y - MARGIN));
+            std::mt19937 e1(seed);
+            std::uniform_real_distribution<float> noise(0, 1.5);
+            std::uniform_real_distribution<float> placer(0, 1);
+            std::normal_distribution<double> height(10, 2);
+            std::normal_distribution<double> radius(10, 1);
+            
+            //if (x >= MARGIN && x < imageBase.width()-MARGIN && y >= MARGIN && y < imageBase.height()-MARGIN)
+                //std::cout << "*";
+            //std::cout << placer(e1) << " ";
+            //source.at<float>(y, x) = placer(e1);
             if ((imageBase.pixel(x, y) & 0xffffff) == (BASE_COLOR.rgb() & 0xffffff) && placer(e1) < PLACER_THRESHOLD) {
                 double h = height(e1);
                 double r = radius(e1);
@@ -148,10 +159,22 @@ void OsmForestsHandler::finalize()
                     }
             }
         }
-        
-    auto totalHeights = source + heights;
-        
-    //cvPaint::paint(source).save("source0.png");
+        //std::cout << std::endl;
+    }
+    source.at<float>(MARGIN,MARGIN) = -1;
+    source.at<float>(source.cols-MARGIN,MARGIN) = -1;
+    source.at<float>(source.cols-MARGIN,source.rows-MARGIN) = 30;
+    source.at<float>(MARGIN,source.rows-MARGIN) = 30;
+    
+    auto totalHeights = source.clone();
+    for (int x=0; x<imageBase.width(); x++)
+        for (int y=0; y<imageBase.height(); y++) {
+            int xx = std::min(std::max(x-MARGIN, 0), image.width()-1);
+            int yy = std::min(std::max(y-MARGIN, 0), image.height()-1);
+            totalHeights.at<float>(y,x) += heights.at<float>(yy,xx);
+        }
+    cvPaint::paint(source).save(("source0" + std::to_string(xTile) + std::to_string(yTile) + ".png").c_str());
+    cvPaint::paint(totalHeights).save(("totalHeights" + std::to_string(xTile) + std::to_string(yTile) + ".png").c_str());
 
     //cv::Mat sourceSmoothed;
     //cv::bilateralFilter(source, sourceSmoothed, -1, 10, 5);
@@ -164,25 +187,31 @@ void OsmForestsHandler::finalize()
     cv::Mat sourceYgrad;
     Sobel(totalHeights, sourceYgrad, -1, 0, 1, 5);
     
-    //cvPaint::paint(sourceXgrad).save("sourceX.png");
-    //cvPaint::paint(sourceYgrad).save("sourceY.png");
+    cvPaint::paint(sourceXgrad).save(("sourceX" + std::to_string(xTile) + std::to_string(yTile) + ".png").c_str());
+    cvPaint::paint(sourceYgrad).save(("sourceY" + std::to_string(xTile) + std::to_string(yTile) + ".png").c_str());
     
     static const double VAL_THRESHOLD = 5;
-    image = paintGrads(sourceXgrad, sourceYgrad);
+    auto imageGrad = paintGrads(sourceXgrad, sourceYgrad);
+    //auto imageGrad = cvPaint::paint(source);
     for (int x=0; x<image.width(); x++)
         for (int y=0; y<image.height(); y++) {
-            double val = source.at<float>(y,x);
+            double val = source.at<float>(y+MARGIN,x+MARGIN);
             int alpha = 0;
             if (val > VAL_THRESHOLD)
-                continue;
+                alpha = 255;
             else if (val < 0) 
                 alpha = 0;
             else alpha = (val / VAL_THRESHOLD * 256);
-            QColor color = image.pixel(x, y);
+            
+            //int seed = xTile * image.width() + x - MARGIN + 10000 * (yTile * image.height() + (y - MARGIN));
+            //int r = (seed + 60000) * 255 / 120000;
+            //QColor color(r, r, r);
+
+            QColor color = imageGrad.pixel(x+MARGIN, y+MARGIN);
             color.setAlpha(alpha);
             image.setPixel(x, y, color.rgba());
         }
-    //image.save("forests.png");
+    image.save("forests.png");
 }
 
 QImage OsmForestsHandler::getImage() const {

@@ -90,7 +90,6 @@ void OsmDrawer::addHandler(BaseHandler* handler)
 
 void OsmDrawer::dispatch(const std::string& filename) {
     ProxyHandler proxy(handlers);
-    
     osmium::io::File infile(filename);
 
     osmium::area::Assembler::config_type assembler_config;
@@ -114,6 +113,6 @@ void OsmDrawer::dispatch(const std::string& filename) {
     }));
     reader2.close();
     std::cerr << "Pass 2 done\n";
-    
+
     proxy.finalize();
 }

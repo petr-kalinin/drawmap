@@ -15,8 +15,9 @@
 const int IMAGE_SIZE = 1200;
 const int TILE_SOURCE_SIZE = 25000;
 
-void drawTile(QImage* result, const std::string osmFile, const Projector proj, MinMax minmax) {
+void drawTile(QImage* result, const std::string osmFile, const Projector proj, MinMax minmax, int xTile, int yTile) {
     std::cout << "tile " << minmax.minx << " " << minmax.maxx << "   " << minmax.miny << " " << minmax.maxy << std::endl;
+    
     SRTMtoCV srtm(proj, minmax, IMAGE_SIZE);
     
     cvPaint::paint(srtm.getCvHeights()).save("test-cv.png");
@@ -28,7 +29,8 @@ void drawTile(QImage* result, const std::string osmFile, const Projector proj, M
     OsmRailHandler rail(proj, minmax, IMAGE_SIZE);
     OsmPlacesHandler places(proj, minmax, IMAGE_SIZE);
     OsmRiversHandler rivers(proj, minmax, IMAGE_SIZE);
-    OsmForestsHandler forests(proj, minmax, IMAGE_SIZE);
+    
+    OsmForestsHandler forests(proj, minmax, IMAGE_SIZE, xTile, yTile);
     
     forests.setHeights(srtm.getCvHeights());
     
@@ -49,6 +51,7 @@ void drawTile(QImage* result, const std::string osmFile, const Projector proj, M
     
     auto hills = cvPaint::paintGrads(srtm.getXGrad(), srtm.getYGrad());
     
+    
     //roads.getImage().save("roads.png");
     //places.getImage().save("places.png");
     
@@ -60,6 +63,8 @@ void drawTile(QImage* result, const std::string osmFile, const Projector proj, M
     *result = combine(*result, rail.getImage());
     *result = combine(*result, places.getImage());
     //std::cout << result << " result.width=" << result->width() << std::endl;
+    
+    //*result = forests.getImage();
 }
 
 int main(int argc, char* argv[]) {
@@ -115,7 +120,7 @@ int main(int argc, char* argv[]) {
     
     minmax.maxy = minmax.miny + (minmax.maxx - minmax.minx); 
     
-    int TILES = 14;
+    int TILES = 10;
     int OFFSET = TILES/2;
     
     QImage result(IMAGE_SIZE*TILES, IMAGE_SIZE*TILES, QImage::Format_ARGB32);
@@ -131,7 +136,8 @@ int main(int argc, char* argv[]) {
             curMinMax.maxx += (x-OFFSET)*TILE_SOURCE_SIZE;
             curMinMax.miny += (OFFSET-y)*TILE_SOURCE_SIZE;
             curMinMax.maxy += (OFFSET-y)*TILE_SOURCE_SIZE;
-            threads.emplace_back(new std::thread(drawTile, &(images[y]), argv[1], proj, curMinMax));
+            threads.emplace_back(new std::thread(drawTile, &(images[y]), argv[1], proj, curMinMax, x, y));
+            //threads[y]->join();
             //drawTile(&(images[y]), argv[1], proj, curMinMax);
         }
         for (int y=0; y<TILES; y++) {
